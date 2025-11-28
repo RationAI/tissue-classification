@@ -1,0 +1,10 @@
+defaults:
+  - hydra: default
+  - logger: mlflow
+  - _self_
+
+metadata:
+  experiment_name: TissueClassification
+  run_name: ???
+  description: ???
+  hyperparams: {}
