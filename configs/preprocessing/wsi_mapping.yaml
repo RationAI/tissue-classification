@@ -1,0 +1,48 @@
+# @package _global_
+defaults:
+  - /default
+  - _self_
+
+metadata:
+  run_name: create_dataset_map
+  description: Initial generation of WSI-Annotation map with metadata.
+
+output_dir: "/mnt/projects/tissue_classification/preprocessing"
+output_csv_name: "dataset_map.csv"
+output_json_name: "class_map.json"
+
+wsi_sources:
+  mou: "/mnt/data/MOU/mixed/tissue_classification/**/*.tiff"
+  mug: "/mnt/data/MUG/mixed/tissue_classification/*.svs"
+  fnbrno: "/mnt/data/FNBrno/pancreas/pancreatic-perineural/*.czi"
+  tcga: "/mnt/data/Public/TCGA/mixed/tissue_classification/**/*.svs"
+
+annotation_sources:
+  mou: "/mnt/data/MOU/mixed/tissue_classification/annotations/**/*.json"
+  mug: "/mnt/data/MUG/mixed/tissue_classification/annotations/*.json"
+  fnbrno: "/mnt/data/FNBrno/pancreas/pancreatic-perineural/annotations/*.geo.json"
+  tcga_geojson: "/mnt/data/Public/TCGA/mixed/tissue_classification/annotations/GeoJSON-12-v6/**/*.geo.json"
+
+mug_organ_map:
+  "02 Chronische Cholecystitis (Chronische Entzündung)": "gallbladder"
+  "04 Colonkarzinom (Colon Vollwandresektat)": "colon"
+  "04b Colonkarzinom pT1": "colon"
+  "31 Colitis ulcerosa": "colon"
+  "05a HSIL Karzinom-Vorläufer_ Cervikale intraepitheliale Neoplasie": "cervix"
+  "07 Leiomyosarkom": "connective tissue"
+  "08 Arterieller Thrombus": "heart"
+  "09 Koronarsklerose": "heart"
+  "25 Ulcus ventriculi": "stomach"
+  "26 Adenokarzinom des Magens, intestinaler Typ": "stomach"
+  "74 Verruca vulgaris": "skin"
+  "77 Basalzellkarzinom": "skin"
+  "78 Naevuszell-Naevus": "skin"
+  "16 Adenokarzinom der Lunge": "lung"
+  "59 Mb. Basedow (hyperthyreose)": "thyroid"
+  "61 Follikuläres Schilddrüsenkarzinom": "thyroid"
+  "23 Barrettmukosa": "esophagus"
+  "15 Arteriosklerotische Schrumpfniere": "kidney"
+  "44 Klarzelliges Nierenzellkarzinom_1": "kidney"
+  "50 Muzinöses Zystadenom_1": "breast"
+  "85 Mammakarzinom NST": "breast"
+  "28 Zöliakie": "small intestine"
