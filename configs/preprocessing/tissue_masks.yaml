@@ -1,0 +1,20 @@
+# @package _global_
+
+defaults:
+  - /default
+  - _self_
+
+level: 3
+max_concurrent: 100
+disk_factor: 50
+mlflow_artifact_path: tissue_masks
+
+mapping_run_id: efa2b66cbef94ea4bfcff94e282fe7fa
+mapping_artifact_path: dataset_map.csv
+
+metadata:
+  run_name: generate_tissue_masks
+  description: Generate binary tissue masks from WSIs, using morphology and grayscale filter
+  hyperparameters:
+    level: ${level}
+    disk_factor: ${disk_factor}

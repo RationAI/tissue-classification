@@ -13,6 +13,8 @@ dependencies = [
     "omegaconf>=2.3.0",
     "rationai-mlkit>=0.2.2",
     "openslide-python>=1.4.2",
+    "rationai-masks>=1.1.1",
+    "ray>=2.51.1",
 ]
 
 [dependency-groups]
@@ -23,3 +25,8 @@ dev = [
 
 [tool.uv.sources]
 rationai-mlkit = { git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/mlkit.git" }
+
+[tool.uv]
+override-dependencies = [
+    "rationai-masks @ git+https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/masks.git@feature/modular-tissue-mask"
+]
