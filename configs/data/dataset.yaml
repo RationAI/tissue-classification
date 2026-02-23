@@ -1,0 +1,52 @@
+# @package _global_
+
+dataset:
+  name: tissue_classification_mixed
+  description: "Mixed dataset (MOU, MUG, FNBrno, TCGA) with mapping logic"
+
+  mlflow_artifacts:
+    mapping_run_id: "efa2b66cbef94ea4bfcff94e282fe7fa"
+    mapping_filename: "dataset_map.csv"
+    tissue_masks_dir: "tissue_masks"
+    qc_masks_dir: "qc_masks"
+
+  exclusions:
+    bad_slides:
+      # This slide has corrupted level 1, which could not be processed in some tasks of QC
+      - "TCGA-W6-AA0T-01Z-00-DX1.7B6C4BED-EFFE-46A3-9C37-1267E05C4DE8.svs"
+
+  wsi_sources:
+    mou: "/mnt/data/MOU/mixed/tissue_classification/**/*.tiff"
+    mug: "/mnt/data/MUG/mixed/tissue_classification/*.svs"
+    fnbrno: "/mnt/data/FNBrno/pancreas/pancreatic-perineural/*.czi"
+    tcga: "/mnt/data/Public/TCGA/mixed/tissue_classification/**/*.svs"
+
+  annotation_sources:
+    mou: "/mnt/data/MOU/mixed/tissue_classification/annotations/**/*.json"
+    mug: "/mnt/data/MUG/mixed/tissue_classification/annotations/*.json"
+    fnbrno: "/mnt/data/FNBrno/pancreas/pancreatic-perineural/annotations/*.geo.json"
+    tcga_geojson: "/mnt/data/Public/TCGA/mixed/tissue_classification/annotations/GeoJSON-12-v6/**/*.geo.json"
+
+  mug_organ_map:
+    "02 Chronische Cholecystitis (Chronische Entzündung)": "gallbladder"
+    "04 Colonkarzinom (Colon Vollwandresektat)": "colon"
+    "04b Colonkarzinom pT1": "colon"
+    "31 Colitis ulcerosa": "colon"
+    "05a HSIL Karzinom-Vorläufer_ Cervikale intraepitheliale Neoplasie": "cervix"
+    "07 Leiomyosarkom": "connective tissue"
+    "08 Arterieller Thrombus": "heart"
+    "09 Koronarsklerose": "heart"
+    "25 Ulcus ventriculi": "stomach"
+    "26 Adenokarzinom des Magens, intestinaler Typ": "stomach"
+    "74 Verruca vulgaris": "skin"
+    "77 Basalzellkarzinom": "skin"
+    "78 Naevuszell-Naevus": "skin"
+    "16 Adenokarzinom der Lunge": "lung"
+    "59 Mb. Basedow (hyperthyreose)": "thyroid"
+    "61 Follikuläres Schilddrüsenkarzinom": "thyroid"
+    "23 Barrettmukosa": "esophagus"
+    "15 Arteriosklerotische Schrumpfniere": "kidney"
+    "44 Klarzelliges Nierenzellkarzinom_1": "kidney"
+    "50 Muzinöses Zystadenom_1": "breast"
+    "85 Mammakarzinom NST": "breast"
+    "28 Zöliakie": "small intestine"

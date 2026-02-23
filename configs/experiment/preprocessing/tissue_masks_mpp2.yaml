@@ -1,0 +1,10 @@
+# @package _global_
+# This tissue mask run used non-default version of tissue masks library
+# for better processing of white fat cells: https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/masks/-/tree/feature/modular-tissue-mask?ref_type=heads
+
+defaults:
+  - /data : dataset
+  - _self_
+
+mpp: 2.0
+disk_factor: 50

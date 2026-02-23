@@ -1,0 +1,9 @@
+defaults:
+  - hydra: default
+  - logger: mlflow
+  - _self_
+
+project_path: /mnt/projects/tissue_classification
+
+metadata:
+  experiment_name: TissueClassification

@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - _self_
+
+mask_mpp: 8.0
+sample_mpp: 16.0

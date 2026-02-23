@@ -63,6 +63,5 @@ mlflow_artifacts/
 .trash/
 
 # --- Data & Outputs---
-data/
 output/
 *.csv

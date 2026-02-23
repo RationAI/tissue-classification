@@ -1,0 +1,14 @@
+defaults:
+  - base
+  - _self_
+
+
+seed: ${random_seed:}
+mode: ???
+checkpoint: null
+
+trainer: {}
+
+data: {}
+
+model: {}

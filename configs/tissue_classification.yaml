@@ -1,6 +1,0 @@
-defaults:
-  - default
-  - _self_
-
-seed: ${random_seed:}
-

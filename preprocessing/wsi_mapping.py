@@ -7,7 +7,7 @@ import hydra
 import openslide
 import pandas as pd
 from omegaconf import DictConfig, OmegaConf
-from rationai.mlkit.autolog import autolog
+from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 
 
@@ -76,20 +76,23 @@ def extract_wsi_metadata(wsi_path: str) -> dict[str, float | int | str]:
     }
 
 
+@with_cli_args(["+preprocessing=wsi_mapping"])
 @hydra.main(
-    config_path="../configs", config_name="preprocessing/wsi_mapping", version_base=None
+    config_path="../configs",
+    config_name="preprocessing",
+    version_base=None,
 )
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    df_wsi = find_files(config.wsi_sources)
+    df_wsi = find_files(config.dataset.wsi_sources)
     df_wsi = df_wsi.rename(columns={"path": "wsi_path"})
 
-    df_ann = find_files(config.annotation_sources)
+    df_ann = find_files(config.dataset.annotation_sources)
     df_ann = df_ann.rename(columns={"path": "annotation_path"})
     df_ann = df_ann[["id_stem", "annotation_path"]]
 
     df_merged = pd.merge(df_wsi, df_ann, on="id_stem", how="inner")
-    df_merged["organ"] = assign_organs(df_merged, config.mug_organ_map)
+    df_merged["organ"] = assign_organs(df_merged, config.dataset.mug_organ_map)
 
     classes = sorted(df_merged["organ"].unique())
     class_map = {name: idx for idx, name in enumerate(classes)}

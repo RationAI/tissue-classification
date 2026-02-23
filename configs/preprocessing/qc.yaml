@@ -1,0 +1,13 @@
+# @package _global_
+
+mask_mpp: ???
+sample_mpp: ???
+
+output_path: ${project_path}/qc_masks
+
+metadata:
+  run_name: QC Masks ${dataset.name}
+  description: Generate quality control masks
+  hyperparams:
+    mask_mpp: ${mask_mpp}
+    sample_mpp: ${sample_mpp}
