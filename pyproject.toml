@@ -13,12 +13,12 @@ dependencies = [
     "omegaconf>=2.3.0",
     "rationai-mlkit>=0.2.2",
     "openslide-python>=1.4.2",
-    "rationai-masks>=1.1.1",
+    "rationai-masks",
     "ray>=2.51.1",
     "pandas>=2.0.0",
     "tqdm>=4.66.0",
     "rationai-sdk",
-    "ratiopath>=1.1.1",
+    "ratiopath>=1.2.0",
 ]
 
 [dependency-groups]

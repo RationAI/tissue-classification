@@ -1,0 +1,15 @@
+# @package _global_
+
+class_mapping: ???
+class_indices: ???
+mpp: ???
+
+
+max_concurrent: 1
+mlflow_artifact_path: annotation_masks
+
+metadata:
+  run_name: Annotation Masks ${dataset.name}
+  description: Generation of multiclass annotation masks utilizing standardized dataset ontology mapping at ${mpp} MPP.
+  hyperparams:
+    mpp: ${mpp}

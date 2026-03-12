@@ -1,0 +1,54 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - _self_
+
+class_mapping:
+  Nerve:
+    - "HEALTHY TISSUE"
+    - "NERVE"
+    - "NERVE-BB"
+  Blood:
+    - "CONNECTIVE-TISSUE-BLOOD"
+  Connective-Tissue:
+    - "CONNECTIVE-TISSUE-DENSE"
+    - "CONNECTIVE-TISSUE-DENSE-BB"
+    - "CONNECTIVE-TISSUE-LOOSE"
+    - "CONNECTIVE-TISSUE-LOOSE-BB"
+    - "CONNECTIVE-TISSUE"
+    - "CONNECTIVE-TISSUE-BB"
+  Fat:
+    - "CONNECTIVE-TISSUE-FAT"
+    - "CONNECTIVE-TISSUE-FAT-BB"
+    - "FAT"
+    - "FAT-BB"
+  Epithelium:
+    - "EPITHELIUM"
+    - "EPITHELIUM-BB"
+  Muscle:
+    - "MUSCLE-SMOOTH"
+    - "MUSCLE-SMOOTH-BB"
+    - "MUSCLE"
+    - "MUSCLE-BB"
+  Inflammation-Chronic:
+    - "INFLAMMATION-CHRONIC"
+  Necrosis:
+    - "NECROSIS"
+  Neoplastic:
+    - "NEOPLASTIC-BENIGN"
+    - "NEOPLASTIC-MALIGNANT"
+    - "NEOPLASTIC-METASTATIC"
+
+class_indices:
+  Nerve: 1
+  Blood: 2
+  Connective-Tissue: 3
+  Fat: 4
+  Epithelium: 5
+  Muscle: 6
+  Inflammation-Chronic: 7
+  Necrosis: 8
+  Neoplastic: 9
+
+mpp: 1.0
