@@ -12,7 +12,7 @@ dataset:
 
   exclusions:
     bad_slides:
-      # This slide has corrupted level 1, which could not be processed in some tasks of QC
+      # This slide has corrupted level 1, which could not be processed in some preprocessing steps.
       - "TCGA-W6-AA0T-01Z-00-DX1.7B6C4BED-EFFE-46A3-9C37-1267E05C4DE8.svs"
 
   wsi_sources:

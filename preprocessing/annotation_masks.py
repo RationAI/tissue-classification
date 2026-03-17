@@ -101,6 +101,7 @@ def process_slide(
     output_dir: str,
     class_mapping: dict[str, list[str]],
     class_indices: dict[str, int],
+    bad_slides: list[str],
 ) -> None:
     slide_path = Path(item[0])
     annotation_path = Path(item[1])
@@ -116,6 +117,9 @@ def process_slide(
 
     with OpenSlide(slide_path) as slide:
         level = slide.closest_level(target_mpp)
+
+        if slide_path.name in bad_slides:
+            level = min(level + 1, slide.level_count - 1)
 
         mpp_x, mpp_y = slide.slide_resolution(level)
         base_width, base_height = slide.level_dimensions[0]
@@ -192,6 +196,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 "class_indices": OmegaConf.to_container(
                     config.class_indices, resolve=True
                 ),
+                "bad_slides": config.dataset.exclusions.get("bad_slides", []),
             },
             max_concurrent=config.max_concurrent,
         )

@@ -22,10 +22,18 @@ from ratiopath.openslide import OpenSlide
 
 @ray.remote(memory=3 * 1024**3)
 def process_slide(
-    slide_path: Path, mpp: float, output_path: Path, disk_factor: int
+    slide_path: Path,
+    mpp: float,
+    output_path: Path,
+    disk_factor: int,
+    bad_slides: list[str],
 ) -> None:
     with OpenSlide(slide_path) as slide:
         level = slide.closest_level(mpp)
+
+        if slide_path.name in bad_slides:
+            level = min(level + 1, slide.level_count - 1)
+
         mpp_x, mpp_y = slide.slide_resolution(level)
 
     slide = pyvips.Image.openslideload(str(slide_path), level=level)
@@ -72,6 +80,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 "mpp": config.mpp,
                 "output_path": Path(output_dir),
                 "disk_factor": config.disk_factor,
+                "bad_slides": config.dataset.exclusions.get("bad_slides", []),
             },
             max_concurrent=config.max_concurrent,
         )
