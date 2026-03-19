@@ -116,10 +116,9 @@ def process_slide(
         return
 
     with OpenSlide(slide_path) as slide:
-        level = slide.closest_level(target_mpp)
-
         if slide_path.name in bad_slides:
-            level = min(level + 1, slide.level_count - 1)
+            target_mpp *= 2
+        level = slide.closest_level(target_mpp)
 
         mpp_x, mpp_y = slide.slide_resolution(level)
         base_width, base_height = slide.level_dimensions[0]

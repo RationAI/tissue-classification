@@ -29,10 +29,9 @@ def process_slide(
     bad_slides: list[str],
 ) -> None:
     with OpenSlide(slide_path) as slide:
-        level = slide.closest_level(mpp)
-
         if slide_path.name in bad_slides:
-            level = min(level + 1, slide.level_count - 1)
+            mpp *= 2
+        level = slide.closest_level(mpp)
 
         mpp_x, mpp_y = slide.slide_resolution(level)
 
