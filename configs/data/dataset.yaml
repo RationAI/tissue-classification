@@ -7,8 +7,8 @@ dataset:
   mlflow_artifacts:
     mapping_run_id: "efa2b66cbef94ea4bfcff94e282fe7fa"
     mapping_filename: "dataset_map.csv"
-    tissue_masks_dir: "tissue_masks"
-    qc_masks_dir: "qc_masks"
+    missing_annotations_run_id: "be3184a2fad640119fc8f1f088df41a2"
+    missing_annotations_filename: "annotation_masks/missing_annotations.csv"
 
   exclusions:
     bad_slides:

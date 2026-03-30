@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - _self_
+
+test_size: 0.2
+min_samples: 5

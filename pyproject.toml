@@ -19,6 +19,8 @@ dependencies = [
     "tqdm>=4.66.0",
     "rationai-sdk",
     "ratiopath>=1.2.0",
+    "scikit-learn>=1.8.0",
+    "numpy>=2.3.5",
 ]
 
 [dependency-groups]

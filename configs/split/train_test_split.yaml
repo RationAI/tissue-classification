@@ -1,0 +1,14 @@
+# @package _global_
+
+test_size: ???
+random_state: 42
+min_samples: ???
+
+mlflow_artifact_path: split_mapping
+
+metadata:
+  run_name: Train/Test split ${dataset.name}
+  description: Split dataset into train and test sets using stratified sampling on slide, organ and source. The split is performed with a test size of ${test_size}. Additionally, patients with fewer than ${min_samples} samples are merged into groups with same organ or even into one general group.
+  hyperparams:
+    test_size: ${test_size}
+    min_samples: ${min_samples}
