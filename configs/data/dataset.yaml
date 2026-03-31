@@ -9,6 +9,11 @@ dataset:
     mapping_filename: "dataset_map.csv"
     missing_annotations_run_id: "be3184a2fad640119fc8f1f088df41a2"
     missing_annotations_filename: "annotation_masks/missing_annotations.csv"
+    annotation_masks_run_id: "be3184a2fad640119fc8f1f088df41a2"
+    annotation_masks_filename: "annotation_masks/annotation_masks.csv"
+    train_test_split_run_id: "90d7c88418ae4b879c3febbb70e9e741"
+    train_split_filename: "split_mapping/train_split.csv"
+    test_split_filename: "split_mapping/test_split.csv"
 
   exclusions:
     bad_slides:
