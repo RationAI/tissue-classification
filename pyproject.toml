@@ -21,6 +21,7 @@ dependencies = [
     "ratiopath>=1.2.0",
     "scikit-learn>=1.8.0",
     "numpy>=2.3.5",
+    "rationai-tiling>=1.1.1",
 ]
 
 [dependency-groups]
@@ -34,6 +35,7 @@ dev = [
 [tool.uv.sources]
 rationai-mlkit = { git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/mlkit.git" }
 rationai-sdk = { git = "https://gitlab.ics.muni.cz/rationai/infrastructure/rationai-sdk-python.git" }
+rationai-tiling = { git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/tiling.git" }
 
 [tool.uv]
 override-dependencies = [
