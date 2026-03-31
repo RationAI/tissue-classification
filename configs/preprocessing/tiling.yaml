@@ -1,0 +1,16 @@
+# @package _global_
+
+mlflow_artifact_path: tiling
+tile_size: ???
+stride: ???
+mpp: ???
+tissue_threshold: ???
+
+metadata:
+  run_name: Tiling ${dataset.name}
+  description: 'WSI patch extraction at ${mpp} MPP. Tile size: ${tile_size}px, Stride: ${stride}px, Tissue threshold: ${tissue_threshold}.'
+  hyperparams:
+    tile_size: ${tile_size}
+    stride: ${stride}
+    mpp: ${mpp}
+

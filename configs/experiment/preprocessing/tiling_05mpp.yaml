@@ -1,0 +1,8 @@
+defaults:
+  - /data: dataset
+  - _self_
+
+tile_size: 224
+stride: 112
+mpp: 0.5
+tissue_threshold: 0.5
