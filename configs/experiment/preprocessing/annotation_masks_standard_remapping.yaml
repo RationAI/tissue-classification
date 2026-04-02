@@ -41,14 +41,14 @@ class_mapping:
     - "NEOPLASTIC-METASTATIC"
 
 class_indices:
-  Nerve: 1
-  Blood: 2
-  Connective-Tissue: 3
-  Fat: 4
-  Epithelium: 5
-  Muscle: 6
-  Inflammation-Chronic: 7
-  Necrosis: 8
-  Neoplastic: 9
+  Nerve: 0
+  Blood: 1
+  Connective-Tissue: 2
+  Fat: 3
+  Epithelium: 4
+  Muscle: 5
+  Inflammation-Chronic: 6
+  Necrosis: 7
+  Neoplastic: 8
 
 mpp: 1.0

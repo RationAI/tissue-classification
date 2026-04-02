@@ -129,12 +129,12 @@ def process_slide(
 
         mask_size = (target_width, target_height)
 
-    mask = Image.new("L", size=mask_size, color=0)
+    mask = Image.new("L", size=mask_size, color=255)
     mask_drawer = ImageDraw.Draw(mask)
 
     for target_class, geometries in extracted_regions.items():
-        class_index = class_indices.get(target_class, 0)
-        if class_index == 0:
+        class_index = class_indices.get(target_class)
+        if class_index is None:
             continue
 
         for polygon in geometries:
@@ -150,7 +150,7 @@ def process_slide(
                 interior_coords = [
                     (x * scale_x, y * scale_y) for x, y in interior.coords
                 ]
-                mask_drawer.polygon(xy=interior_coords, fill=0)
+                mask_drawer.polygon(xy=interior_coords, fill=255)
 
     del mask_drawer
 
