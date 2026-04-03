@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 import hydra
 import mlflow.artifacts
@@ -15,20 +15,6 @@ from ratiopath.tiling.utils import row_hash
 from ray.data.expressions import col
 from shapely.geometry import box
 from shapely import Polygon
-
-
-class _RayCpuResources(TypedDict):
-    num_cpus: float
-
-
-class _RayMemResources(TypedDict):
-    memory: int
-
-
-LO_CPU: _RayCpuResources = {"num_cpus": 0.1}
-HI_CPU: _RayCpuResources = {"num_cpus": 0.2}
-LO_MEM: _RayMemResources = {"memory": 128 * 1024 ** 2}
-HI_MEM: _RayMemResources = {"memory": 256 * 1024 ** 2}
 
 
 def add_mask_paths(row: dict[str, Any], mask_folder: Path) -> dict[str, Any]:
@@ -68,7 +54,7 @@ def tile(row: dict[str, Any]) -> list[dict[str, Any]]:
 def process_mask_overlap(row: dict[str, Any]) -> dict[str, Any]:
     overlap = row["mask_overlap"]
 
-    bg_prop = overlap.get("0", 0.0)
+    bg_prop = overlap.get("255", 0.0)
     if bg_prop is None:
         bg_prop = 1.0
 
@@ -77,7 +63,7 @@ def process_mask_overlap(row: dict[str, Any]) -> dict[str, Any]:
     best_class = 0
     best_prop = 0.0
     for cls_str, prop in overlap.items():
-        if cls_str != "0" and prop is not None and prop > best_prop:
+        if cls_str != "255" and prop is not None and prop > best_prop:
             best_prop = prop
             best_class = int(cls_str)
 
@@ -106,7 +92,7 @@ def tiling(
 
     slides = (
         read_slides(paths, tile_extent=tile_extent, stride=stride, mpp=mpp)
-        .map(row_hash, **LO_CPU, **LO_MEM)
+        .map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
     )
 
     tissue_roi = create_tissue_roi(tile_extent)
@@ -115,10 +101,10 @@ def tiling(
         slides.map(
             add_mask_paths,
             fn_args=(mask_folder,),
-            **LO_CPU,
-            **LO_MEM,
+            num_cpus=0.1,
+            memory=128 * 1024**2,
         )
-        .flat_map(tile, **HI_CPU, **LO_MEM)
+        .flat_map(tile, num_cpus=0.2, memory=128 * 1024**2)
         .repartition(target_num_rows_per_block=4096)
         .with_column(
             "mask_overlap",
@@ -130,11 +116,11 @@ def tiling(
                 col("mpp_x"),
                 col("mpp_y"),
             ),
-            **HI_CPU,
-            **HI_MEM,
+            num_cpus=1,
+            memory=256 * 1024**2,
         )
-        .map(process_mask_overlap, **LO_CPU, **LO_MEM)
-        .map(select, **LO_CPU, **LO_MEM)
+        .map(process_mask_overlap, num_cpus=0.1, memory=128 * 1024**2)
+        .map(select, num_cpus=0.1, memory=128 * 1024**2)
     )
 
     return slides.to_pandas(), tiles.to_pandas()
