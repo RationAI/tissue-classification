@@ -18,7 +18,7 @@ from shapely.geometry import box
 
 
 def add_mask_paths(row: dict[str, Any], mask_folder: Path) -> dict[str, Any]:
-    row["mask_path"] = str(mask_folder / f"{Path(row["path"]).stem}.tiff")
+    row["mask_path"] = str(mask_folder / f"{Path(row['path']).stem}.tiff")
     return row
 
 
@@ -87,9 +87,9 @@ def tiling(
     stride: int,
     mpp: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    slides = read_slides(df["wsi_path"].tolist(), tile_extent=tile_extent, stride=stride, mpp=mpp).map(
-        row_hash, num_cpus=0.1, memory=128 * 1024**2
-    )
+    slides = read_slides(
+        df["wsi_path"].tolist(), tile_extent=tile_extent, stride=stride, mpp=mpp
+    ).map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
 
     tiles = (
         slides.map(
@@ -127,7 +127,9 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     mask_folder = Path(
         mlflow.artifacts.download_artifacts(
             run_id=config.dataset.mlflow_artifacts.annotation_masks_run_id,
-            artifact_path=str(Path(config.dataset.mlflow_artifacts.annotation_masks_filename).parent),
+            artifact_path=str(
+                Path(config.dataset.mlflow_artifacts.annotation_masks_filename).parent
+            ),
         )
     )
 
