@@ -7,7 +7,7 @@ mpp: ???
 
 metadata:
   run_name: Tiling ${dataset.name}
-  description: 'WSI patch extraction at ${mpp} MPP. Tile size: ${tile_size}px, Stride: ${stride}px, Tissue threshold: ${tissue_threshold}.'
+  description: 'WSI patch extraction at ${mpp} MPP. Tile size: ${tile_size}px, Stride: ${stride}px.'
   hyperparams:
     tile_size: ${tile_size}
     stride: ${stride}

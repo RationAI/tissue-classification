@@ -18,8 +18,7 @@ from shapely.geometry import box
 
 
 def add_mask_paths(row: dict[str, Any], mask_folder: Path) -> dict[str, Any]:
-    stem = Path(row["path"]).stem
-    row["mask_path"] = str(mask_folder / f"{stem}.tiff")
+    row["mask_path"] = str(mask_folder / f"{Path(row["path"]).stem}.tiff")
     return row
 
 
@@ -88,13 +87,9 @@ def tiling(
     stride: int,
     mpp: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    paths = df["path"].tolist()
-
-    slides = read_slides(paths, tile_extent=tile_extent, stride=stride, mpp=mpp).map(
+    slides = read_slides(df["wsi_path"].tolist(), tile_extent=tile_extent, stride=stride, mpp=mpp).map(
         row_hash, num_cpus=0.1, memory=128 * 1024**2
     )
-
-    tissue_roi = create_tissue_roi(tile_extent)
 
     tiles = (
         slides.map(
@@ -108,7 +103,7 @@ def tiling(
         .with_column(
             "mask_overlap",
             tile_overlay_overlap(
-                tissue_roi,
+                create_tissue_roi(tile_extent),
                 col("mask_path"),
                 col("tile_x"),
                 col("tile_y"),
@@ -129,12 +124,10 @@ def tiling(
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    masks_artifact = Path(config.dataset.mlflow_artifacts.annotation_masks_filename)
-    masks_dir_artifact = str(masks_artifact.parent)
     mask_folder = Path(
         mlflow.artifacts.download_artifacts(
             run_id=config.dataset.mlflow_artifacts.annotation_masks_run_id,
-            artifact_path=masks_dir_artifact,
+            artifact_path=str(Path(config.dataset.mlflow_artifacts.annotation_masks_filename).parent),
         )
     )
 
@@ -149,7 +142,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 run_id=config.dataset.mlflow_artifacts.train_test_split_run_id,
                 artifact_path=split_artifact,
             ),
-            index_col="slide_id",
         )
 
         df_slides, df_tiles = tiling(
