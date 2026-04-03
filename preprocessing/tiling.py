@@ -13,8 +13,8 @@ from ratiopath.ray import read_slides
 from ratiopath.tiling import grid_tiles, tile_overlay_overlap
 from ratiopath.tiling.utils import row_hash
 from ray.data.expressions import col
-from shapely.geometry import box
 from shapely import Polygon
+from shapely.geometry import box
 
 
 def add_mask_paths(row: dict[str, Any], mask_folder: Path) -> dict[str, Any]:
@@ -82,17 +82,16 @@ def select(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def tiling(
-        df: pd.DataFrame,
-        mask_folder: Path,
-        tile_extent: int,
-        stride: int,
-        mpp: float,
+    df: pd.DataFrame,
+    mask_folder: Path,
+    tile_extent: int,
+    stride: int,
+    mpp: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     paths = df["path"].tolist()
 
-    slides = (
-        read_slides(paths, tile_extent=tile_extent, stride=stride, mpp=mpp)
-        .map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
+    slides = read_slides(paths, tile_extent=tile_extent, stride=stride, mpp=mpp).map(
+        row_hash, num_cpus=0.1, memory=128 * 1024**2
     )
 
     tissue_roi = create_tissue_roi(tile_extent)
@@ -161,9 +160,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             mpp=config.mpp,
         )
 
-        save_mlflow_dataset(
-            df_slides, df_tiles, f"{split_name}_split"
-        )
+        save_mlflow_dataset(df_slides, df_tiles, f"{split_name}_split")
 
 
 if __name__ == "__main__":
