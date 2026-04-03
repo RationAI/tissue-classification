@@ -85,10 +85,6 @@ def process_mask_overlap(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def filter_tissue(row: dict[str, Any], threshold: float) -> bool:
-    return row["tissue_prop"] >= threshold
-
-
 def select(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "slide_id": row["slide_id"],
@@ -105,7 +101,6 @@ def tiling(
         tile_extent: int,
         stride: int,
         mpp: float,
-        tissue_threshold: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     paths = df["path"].tolist()
 
@@ -139,7 +134,6 @@ def tiling(
             **HI_MEM,
         )
         .map(process_mask_overlap, **LO_CPU, **LO_MEM)
-        .filter(filter_tissue, fn_args=(tissue_threshold,), **LO_CPU, **LO_MEM)
         .map(select, **LO_CPU, **LO_MEM)
     )
 
@@ -179,10 +173,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             tile_extent=config.tile_size,
             stride=config.stride,
             mpp=config.mpp,
-            tissue_threshold=config.tissue_threshold,
         )
 
-        # 3. Uložení nezávislých Parquet datasetů do MLflow artefaktů aktuálního runu
         save_mlflow_dataset(
             df_slides, df_tiles, f"{split_name}_split"
         )
