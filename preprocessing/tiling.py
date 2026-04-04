@@ -23,6 +23,7 @@ def add_mask_paths(row: dict[str, Any], mask_folder: Path) -> dict[str, Any]:
 
 
 def create_tissue_roi(tile_extent: int) -> Polygon:
+    # Use the center 50% of the tile to avoid boundary artifacts when assessing tissue content.
     offset = tile_extent // 4
     size = tile_extent // 2
     return box(offset, offset, offset + size, offset + size)
@@ -51,6 +52,12 @@ def tile(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def process_mask_overlap(row: dict[str, Any]) -> dict[str, Any]:
+    """Derive tissue_prop and label from mask overlap.
+
+    Annotation masks use pixel value 255 for background and 0-6 for tissue classes.
+    tissue_prop is the fraction of non-background pixels in the ROI.
+    label is the most prevalent tissue class (ignoring background).
+    """
     overlap = row["mask_overlap"]
 
     bg_prop = overlap.get("255", 0.0)
@@ -87,6 +94,14 @@ def tiling(
     stride: int,
     mpp: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run the tiling pipeline for a set of slides.
+
+    Returns a (slides, tiles) tuple of DataFrames. The slides DataFrame contains
+    slide-level metadata with unique IDs. The tiles DataFrame contains one row per tile
+    with its coordinates, tissue_prop, and dominant class label.
+    All tiles are retained regardless of tissue_prop — filtering by threshold is done
+    downstream once the distribution is known.
+    """
     slides = read_slides(
         df["wsi_path"].tolist(), tile_extent=tile_extent, stride=stride, mpp=mpp
     ).map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
