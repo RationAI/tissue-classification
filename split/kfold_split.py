@@ -34,14 +34,15 @@ def log_fold_statistics(df: pd.DataFrame, n_folds: int) -> None:
         mlflow.log_metric(f"fold_{fold}_train_tiles", total - len(val))
         mlflow.log_metric(f"fold_{fold}_val_tiles", len(val))
         mlflow.log_metric(f"fold_{fold}_val_slides", val["slide_id"].nunique())
-        mlflow.log_metric(f"fold_{fold}_val_tissue_prop_mean", round(val["tissue_prop"].mean(), 4))
-        mlflow.log_metric(f"fold_{fold}_val_tissue_prop_std", round(val["tissue_prop"].std(), 4))
+        mlflow.log_metric(
+            f"fold_{fold}_val_tissue_prop_mean", round(val["tissue_prop"].mean(), 4)
+        )
+        mlflow.log_metric(
+            f"fold_{fold}_val_tissue_prop_std", round(val["tissue_prop"].std(), 4)
+        )
 
     label_dist = (
-        df.groupby(["fold", "label"])
-        .size()
-        .unstack(fill_value=0)
-        .reset_index()
+        df.groupby(["fold", "label"]).size().unstack(fill_value=0).reset_index()
     )
     mlflow.log_table(
         data=label_dist,
