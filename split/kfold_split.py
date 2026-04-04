@@ -20,7 +20,7 @@ def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
 def assign_folds(df: pd.DataFrame, n_folds: int, random_state: int) -> pd.DataFrame:
     """Assign each tile to a validation fold using stratified k-fold on tissue class label."""
     skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
-    df = df.copy()
+    df = df.copy().reset_index(drop=True)
     df["fold"] = -1
     for fold_idx, (_, val_idx) in enumerate(skf.split(df, df["label"])):
         df.loc[val_idx, "fold"] = fold_idx
