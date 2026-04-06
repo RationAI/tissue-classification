@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any
 
+import re
+
 import hydra
 import mlflow.artifacts
 import numpy as np
@@ -24,7 +26,7 @@ def get_validated_polygons(
     if not original_names:
         return []
 
-    regex_pattern = f"(?i)^({'|'.join(original_names)})$"
+    regex_pattern = f"(?i)^({'|'.join(re.escape(name) for name in original_names)})$"
 
     if isinstance(parser, GeoJSONParser):
         raw_polygons = parser.get_polygons(meta_category_value=regex_pattern)
