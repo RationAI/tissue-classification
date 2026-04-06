@@ -3,37 +3,120 @@ from typing import Any
 
 import hydra
 import mlflow.artifacts
+import numpy as np
 import pandas as pd
 import ray
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from rationai.tiling.writers import save_mlflow_dataset
+from ratiopath.parsers import Darwin7JSONParser, GeoJSONParser
 from ratiopath.ray import read_slides
-from ratiopath.tiling import grid_tiles, tile_overlay_overlap
+from ratiopath.tiling import grid_tiles, tile_annotations
 from ratiopath.tiling.utils import row_hash
-from ray.data.expressions import col
-from shapely import Polygon
-from shapely.geometry import box
+from shapely import Polygon, make_valid
+from shapely.geometry.base import BaseGeometry
 
 
-def add_mask_paths(row: dict[str, Any], mask_folder: Path) -> dict[str, Any]:
-    row["mask_path"] = str(mask_folder / f"{Path(row['path']).stem}.tiff")
+def get_validated_polygons(
+    parser: GeoJSONParser | Darwin7JSONParser, original_names: list[str]
+) -> list[BaseGeometry]:
+    if not original_names:
+        return []
+
+    regex_pattern = f"(?i)^({'|'.join(original_names)})$"
+
+    if isinstance(parser, GeoJSONParser):
+        raw_polygons = parser.get_polygons(meta_category_value=regex_pattern)
+    else:
+        raw_polygons = parser.get_polygons(name=regex_pattern)
+
+    valid_polygons = []
+    for poly in raw_polygons:
+        if poly is None or poly.is_empty:
+            continue
+
+        validated = make_valid(poly) if not poly.is_valid else poly
+
+        if isinstance(validated, Polygon):
+            valid_polygons.append(validated)
+        elif hasattr(validated, "geoms"):
+            for geom in validated.geoms:
+                if isinstance(geom, Polygon):
+                    valid_polygons.append(geom)
+
+    return valid_polygons
+
+
+def add_annotation_path(
+    row: dict[str, Any], path_to_annotation: dict[str, str]
+) -> dict[str, Any]:
+    row["annotation_path"] = path_to_annotation.get(row["path"], "")
     return row
 
 
-def create_tissue_roi(tile_extent: int) -> Polygon:
-    # Use the center 50% of the tile to avoid boundary artifacts when assessing tissue content.
-    offset = tile_extent // 4
-    size = tile_extent // 2
-    return box(offset, offset, offset + size, offset + size)
+def tile_with_coverage(
+    row: dict[str, Any],
+    class_mapping: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Generate tiles and compute per-class annotation coverage for a slide.
 
+    Parses the annotation file associated with the slide, computes the fraction
+    of each tile's area covered by each annotation class, and returns one row
+    per tile with coverage values.
+    """
+    annotation_path = Path(row["annotation_path"])
+    path_str = str(annotation_path)
 
-def tile(row: dict[str, Any]) -> list[dict[str, Any]]:
+    if path_str.endswith((".geo.json", ".geojson")):
+        parser = GeoJSONParser(annotation_path)
+    elif path_str.endswith(".json"):
+        parser = Darwin7JSONParser(annotation_path)
+    else:
+        return []
+
+    class_annotations = {
+        cls_name: get_validated_polygons(parser, original_names)
+        for cls_name, original_names in class_mapping.items()
+    }
+
+    roi = Polygon(
+        [
+            (0, 0),
+            (row["tile_extent_x"], 0),
+            (row["tile_extent_x"], row["tile_extent_y"]),
+            (0, row["tile_extent_y"]),
+        ]
+    )
+    roi_area = roi.area
+
+    coordinates = np.array(
+        list(
+            grid_tiles(
+                slide_extent=(row["extent_x"], row["extent_y"]),
+                tile_extent=(row["tile_extent_x"], row["tile_extent_y"]),
+                stride=(row["stride_x"], row["stride_y"]),
+            )
+        )
+    )
+
+    if len(coordinates) == 0:
+        return []
+
+    class_coverages = {
+        cls_name: [
+            intersection.area / roi_area
+            for intersection in tile_annotations(
+                annotations, roi, coordinates, row["downsample"]
+            )
+        ]
+        for cls_name, annotations in class_annotations.items()
+    }
+
     return [
         {
-            "tile_x": x,
-            "tile_y": y,
+            "tile_x": int(coordinates[i, 0]),
+            "tile_y": int(coordinates[i, 1]),
             "path": row["path"],
             "slide_id": row["id"],
             "level": row["level"],
@@ -41,55 +124,27 @@ def tile(row: dict[str, Any]) -> list[dict[str, Any]]:
             "tile_extent_y": row["tile_extent_y"],
             "mpp_x": row["mpp_x"],
             "mpp_y": row["mpp_y"],
-            "mask_path": row["mask_path"],
+            **{
+                f"coverage_{cls_name}": class_coverages[cls_name][i]
+                for cls_name in class_annotations
+            },
         }
-        for x, y in grid_tiles(
-            slide_extent=(row["extent_x"], row["extent_y"]),
-            tile_extent=(row["tile_extent_x"], row["tile_extent_y"]),
-            stride=(row["stride_x"], row["stride_y"]),
-        )
+        for i in range(len(coordinates))
     ]
 
 
-def process_mask_overlap(row: dict[str, Any]) -> dict[str, Any]:
-    """Derive tissue_prop and label from mask overlap.
-
-    Annotation masks use pixel value 255 for background and 0-6 for tissue classes.
-    tissue_prop is the fraction of non-background pixels in the ROI.
-    label is the most prevalent tissue class (ignoring background).
-    """
-    overlap = row["mask_overlap"]
-
-    bg_prop = overlap.get("255", 0.0)
-    if bg_prop is None:
-        bg_prop = 1.0
-
-    row["tissue_prop"] = 1.0 - bg_prop
-
-    best_class = 0
-    best_prop = 0.0
-    for cls_str, prop in overlap.items():
-        if cls_str != "255" and prop is not None and prop > best_prop:
-            best_prop = prop
-            best_class = int(cls_str)
-
-    row["label"] = best_class
-    return row
-
-
-def select(row: dict[str, Any]) -> dict[str, Any]:
+def select(row: dict[str, Any], class_names: list[str]) -> dict[str, Any]:
     return {
         "slide_id": row["slide_id"],
         "x": row["tile_x"],
         "y": row["tile_y"],
-        "tissue_prop": row["tissue_prop"],
-        "label": row["label"],
+        **{f"coverage_{cls_name}": row[f"coverage_{cls_name}"] for cls_name in class_names},
     }
 
 
 def tiling(
     df: pd.DataFrame,
-    mask_folder: Path,
+    class_mapping: dict[str, list[str]],
     tile_extent: int,
     stride: int,
     mpp: float,
@@ -98,38 +153,37 @@ def tiling(
 
     Returns a (slides, tiles) tuple of DataFrames. The slides DataFrame contains
     slide-level metadata with unique IDs. The tiles DataFrame contains one row per tile
-    with its coordinates, tissue_prop, and dominant class label.
-    All tiles are retained regardless of tissue_prop — filtering by threshold is done
+    with its coordinates and per-class annotation coverage values.
+    All tiles are retained regardless of coverage — filtering by threshold is done
     downstream once the distribution is known.
     """
+    path_to_annotation = dict(zip(df["wsi_path"], df["annotation_path"]))
+    class_names = list(class_mapping.keys())
+
     slides = read_slides(
         df["wsi_path"].tolist(), tile_extent=tile_extent, stride=stride, mpp=mpp
     ).map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
 
     tiles = (
         slides.map(
-            add_mask_paths,
-            fn_args=(mask_folder,),
+            add_annotation_path,
+            fn_args=(path_to_annotation,),
             num_cpus=0.1,
             memory=128 * 1024**2,
         )
-        .flat_map(tile, num_cpus=0.2, memory=128 * 1024**2)
-        .repartition(target_num_rows_per_block=4096)
-        .with_column(
-            "mask_overlap",
-            tile_overlay_overlap(
-                create_tissue_roi(tile_extent),
-                col("mask_path"),
-                col("tile_x"),
-                col("tile_y"),
-                col("mpp_x"),
-                col("mpp_y"),
-            ),
-            num_cpus=1,
-            memory=256 * 1024**2,
+        .flat_map(
+            tile_with_coverage,
+            fn_args=(class_mapping,),
+            num_cpus=0.5,
+            memory=512 * 1024**2,
         )
-        .map(process_mask_overlap, num_cpus=0.1, memory=128 * 1024**2)
-        .map(select, num_cpus=0.1, memory=128 * 1024**2)
+        .repartition(target_num_rows_per_block=4096)
+        .map(
+            select,
+            fn_args=(class_names,),
+            num_cpus=0.1,
+            memory=128 * 1024**2,
+        )
     )
 
     return slides.to_pandas(), tiles.to_pandas()
@@ -139,15 +193,6 @@ def tiling(
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    mask_folder = Path(
-        mlflow.artifacts.download_artifacts(
-            run_id=config.dataset.mlflow_artifacts.annotation_masks_run_id,
-            artifact_path=str(
-                Path(config.dataset.mlflow_artifacts.annotation_masks_filename).parent
-            ),
-        )
-    )
-
     split_artifacts = {
         "train": config.dataset.mlflow_artifacts.train_split_filename,
         "test": config.dataset.mlflow_artifacts.test_split_filename,
@@ -163,7 +208,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
         df_slides, df_tiles = tiling(
             df=split_df,
-            mask_folder=mask_folder,
+            class_mapping=OmegaConf.to_container(config.class_mapping, resolve=True),
             tile_extent=config.tile_size,
             stride=config.stride,
             mpp=config.mpp,
