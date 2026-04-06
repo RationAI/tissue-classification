@@ -1,7 +1,6 @@
+import re
 from pathlib import Path
 from typing import Any
-
-import re
 
 import hydra
 import mlflow.artifacts
