@@ -4,6 +4,7 @@ mlflow_artifact_path: tiling
 tile_size: ???
 stride: ???
 mpp: ???
+class_mapping: ???
 
 metadata:
   run_name: Tiling ${dataset.name}
