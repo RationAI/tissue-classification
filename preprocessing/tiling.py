@@ -138,7 +138,10 @@ def select(row: dict[str, Any], class_names: list[str]) -> dict[str, Any]:
         "slide_id": row["slide_id"],
         "x": row["tile_x"],
         "y": row["tile_y"],
-        **{f"coverage_{cls_name}": row[f"coverage_{cls_name}"] for cls_name in class_names},
+        **{
+            f"coverage_{cls_name}": row[f"coverage_{cls_name}"]
+            for cls_name in class_names
+        },
     }
 
 
@@ -157,7 +160,7 @@ def tiling(
     All tiles are retained regardless of coverage — filtering by threshold is done
     downstream once the distribution is known.
     """
-    path_to_annotation = dict(zip(df["wsi_path"], df["annotation_path"]))
+    path_to_annotation = dict(zip(df["wsi_path"], df["annotation_path"], strict=True))
     class_names = list(class_mapping.keys())
 
     slides = read_slides(
