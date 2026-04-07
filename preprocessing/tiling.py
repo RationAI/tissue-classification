@@ -152,8 +152,14 @@ def select(row: dict[str, Any], class_names: list[str]) -> dict[str, Any]:
         "slide_id": row["slide_id"],
         "x": row["tile_x"],
         "y": row["tile_y"],
-        **{f"tile_coverage_{cls_name}": row[f"tile_coverage_{cls_name}"] for cls_name in class_names},
-        **{f"roi_coverage_{cls_name}": row[f"roi_coverage_{cls_name}"] for cls_name in class_names},
+        **{
+            f"tile_coverage_{cls_name}": row[f"tile_coverage_{cls_name}"]
+            for cls_name in class_names
+        },
+        **{
+            f"roi_coverage_{cls_name}": row[f"roi_coverage_{cls_name}"]
+            for cls_name in class_names
+        },
     }
 
 
