@@ -62,9 +62,10 @@ def tile_with_coverage(
 ) -> list[dict[str, Any]]:
     """Generate tiles and compute per-class annotation coverage for a slide.
 
-    Parses the annotation file associated with the slide, computes the fraction
-    of each tile's area covered by each annotation class, and returns one row
-    per tile with coverage values.
+    Parses the annotation file associated with the slide and returns one row per
+    tile with two coverage values per class:
+    - tile_coverage: fraction of the whole tile area covered by the class
+    - roi_coverage: fraction of the central half-size ROI covered by the class
     """
     annotation_path = Path(row["annotation_path"])
     path_str = str(annotation_path)
@@ -81,21 +82,26 @@ def tile_with_coverage(
         for cls_name, original_names in class_mapping.items()
     }
 
-    roi = Polygon(
+    tile_w, tile_h = row["tile_extent_x"], row["tile_extent_y"]
+    tile_polygon = Polygon([(0, 0), (tile_w, 0), (tile_w, tile_h), (0, tile_h)])
+    tile_area = tile_polygon.area
+
+    cx, cy = tile_w / 2, tile_h / 2
+    roi_polygon = Polygon(
         [
-            (0, 0),
-            (row["tile_extent_x"], 0),
-            (row["tile_extent_x"], row["tile_extent_y"]),
-            (0, row["tile_extent_y"]),
+            (cx - tile_w / 4, cy - tile_h / 4),
+            (cx + tile_w / 4, cy - tile_h / 4),
+            (cx + tile_w / 4, cy + tile_h / 4),
+            (cx - tile_w / 4, cy + tile_h / 4),
         ]
     )
-    roi_area = roi.area
+    roi_area = roi_polygon.area
 
     coordinates = np.array(
         list(
             grid_tiles(
                 slide_extent=(row["extent_x"], row["extent_y"]),
-                tile_extent=(row["tile_extent_x"], row["tile_extent_y"]),
+                tile_extent=(tile_w, tile_h),
                 stride=(row["stride_x"], row["stride_y"]),
             )
         )
@@ -106,9 +112,12 @@ def tile_with_coverage(
 
     class_coverages = {
         cls_name: [
-            intersection.area / roi_area
+            (
+                intersection.area / tile_area,
+                intersection.intersection(roi_polygon).area / roi_area,
+            )
             for intersection in tile_annotations(
-                annotations, roi, coordinates, row["downsample"]
+                annotations, tile_polygon, coordinates, row["downsample"]
             )
         ]
         for cls_name, annotations in class_annotations.items()
@@ -121,12 +130,16 @@ def tile_with_coverage(
             "path": row["path"],
             "slide_id": row["id"],
             "level": row["level"],
-            "tile_extent_x": row["tile_extent_x"],
-            "tile_extent_y": row["tile_extent_y"],
+            "tile_extent_x": tile_w,
+            "tile_extent_y": tile_h,
             "mpp_x": row["mpp_x"],
             "mpp_y": row["mpp_y"],
             **{
-                f"coverage_{cls_name}": class_coverages[cls_name][i]
+                f"tile_coverage_{cls_name}": class_coverages[cls_name][i][0]
+                for cls_name in class_annotations
+            },
+            **{
+                f"roi_coverage_{cls_name}": class_coverages[cls_name][i][1]
                 for cls_name in class_annotations
             },
         }
@@ -139,10 +152,8 @@ def select(row: dict[str, Any], class_names: list[str]) -> dict[str, Any]:
         "slide_id": row["slide_id"],
         "x": row["tile_x"],
         "y": row["tile_y"],
-        **{
-            f"coverage_{cls_name}": row[f"coverage_{cls_name}"]
-            for cls_name in class_names
-        },
+        **{f"tile_coverage_{cls_name}": row[f"tile_coverage_{cls_name}"] for cls_name in class_names},
+        **{f"roi_coverage_{cls_name}": row[f"roi_coverage_{cls_name}"] for cls_name in class_names},
     }
 
 
