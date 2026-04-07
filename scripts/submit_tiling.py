@@ -3,7 +3,7 @@ from kube_jobs import storage, submit_job
 
 submit_job(
     job_name="tissue-classification-tiling",
-    username="vcifka",
+    username=...,
     cpu=8,
     memory="32Gi",  # approximately 4GiB per process
     public=False,
