@@ -168,7 +168,11 @@ def tiling(
 
     Returns a (slides, tiles) tuple of DataFrames. The slides DataFrame contains
     slide-level metadata with unique IDs. The tiles DataFrame contains one row per tile
-    with its coordinates and per-class annotation coverage values.
+    with its coordinates and two sets of per-class annotation coverage values:
+    - tile_coverage_{class}: fraction of the whole tile area covered by the class
+    - roi_coverage_{class}: fraction of the central half-size ROI (tile_extent/2 x
+      tile_extent/2) covered by the class
+
     All tiles are retained regardless of coverage — filtering by threshold is done
     downstream once the distribution is known.
     """
