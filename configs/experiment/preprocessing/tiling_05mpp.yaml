@@ -2,42 +2,9 @@
 
 defaults:
   - /data: dataset
+  - /class_mapping: collapse_alterations_to_other
   - _self_
 
 tile_size: 224
 stride: 112
 mpp: 0.5
-
-class_mapping:
-  Nerve:
-    - "HEALTHY TISSUE"
-    - "NERVE"
-    - "NERVE-BB"
-  Blood:
-    - "CONNECTIVE-TISSUE-BLOOD"
-  Connective-Tissue:
-    - "CONNECTIVE-TISSUE-DENSE"
-    - "CONNECTIVE-TISSUE-DENSE-BB"
-    - "CONNECTIVE-TISSUE-LOOSE"
-    - "CONNECTIVE-TISSUE-LOOSE-BB"
-    - "CONNECTIVE-TISSUE"
-    - "CONNECTIVE-TISSUE-BB"
-  Fat:
-    - "CONNECTIVE-TISSUE-FAT"
-    - "CONNECTIVE-TISSUE-FAT-BB"
-    - "FAT"
-    - "FAT-BB"
-  Epithelium:
-    - "EPITHELIUM"
-    - "EPITHELIUM-BB"
-  Muscle:
-    - "MUSCLE-SMOOTH"
-    - "MUSCLE-SMOOTH-BB"
-    - "MUSCLE"
-    - "MUSCLE-BB"
-  Other:
-    - "INFLAMMATION-CHRONIC"
-    - "NECROSIS"
-    - "NEOPLASTIC-BENIGN"
-    - "NEOPLASTIC-MALIGNANT"
-    - "NEOPLASTIC-METASTATIC"
