@@ -2118,6 +2118,7 @@ dependencies = [
     { name = "ratiopath" },
     { name = "ray" },
     { name = "scikit-learn" },
+    { name = "tifffile" },
     { name = "tqdm" },
 ]
 
@@ -2144,6 +2145,7 @@ requires-dist = [
     { name = "ratiopath", specifier = ">=1.2.0" },
     { name = "ray", specifier = ">=2.51.1" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
+    { name = "tifffile" },
     { name = "tqdm", specifier = ">=4.66.0" },
 ]
 
