@@ -1,0 +1,12 @@
+# @package _global_
+
+dataset: {}
+
+source_run_id: ???
+artifact_dir: ???
+
+mlflow_artifact_path: ${artifact_dir}
+
+metadata:
+  run_name: Fix Mask ICC Profile (${artifact_dir})
+  description: "Strip RGB ICC profile from grayscale TIFF masks (source run: ${source_run_id}, dir: ${artifact_dir})"
