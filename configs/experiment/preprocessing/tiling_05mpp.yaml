@@ -5,4 +5,6 @@ defaults:
   - /class_mapping: collapse_alterations_to_other
   - _self_
 
-mpp: 1.0
+tile_size: 224
+stride: 112
+mpp: 0.5
