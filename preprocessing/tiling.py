@@ -112,12 +112,15 @@ def tile_with_coverage(
 
     class_coverages = {
         cls_name: [
-            (
-                intersection.area / tile_area,
-                intersection.intersection(roi_polygon).area / roi_area,
-            )
-            for intersection in tile_annotations(
-                annotations, tile_polygon, coordinates, row["downsample"]
+            (tile_intersection.area / tile_area, roi_intersection.area / roi_area)
+            for tile_intersection, roi_intersection in zip(
+                tile_annotations(
+                    annotations, tile_polygon, coordinates, row["downsample"]
+                ),
+                tile_annotations(
+                    annotations, roi_polygon, coordinates, row["downsample"]
+                ),
+                strict=True,
             )
         ]
         for cls_name, annotations in class_annotations.items()
