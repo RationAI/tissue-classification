@@ -2,6 +2,7 @@
 source_run_id: ???
 artifact_dir: ???
 
+max_concurrent: 8
 mlflow_artifact_path: ${artifact_dir}
 
 metadata:

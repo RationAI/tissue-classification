@@ -4,26 +4,25 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import hydra
-import mlflow
+import ray
 import tifffile
 from mlflow.artifacts import download_artifacts
 from omegaconf import DictConfig
+from rationai.masks import process_items
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 
 
-def fix_tiff_icc(src_path: Path, dst_path: Path) -> str:
+def _fix_tiff_icc(src_path: Path, dst_path: Path) -> None:
     """Re-write a grayscale TIFF, stripping the ICC profile.
 
     Preserves ALL pyramid levels, pixel data, compression, tiling,
     predictor, and resolution metadata.
-    Returns a short status string.
     """
     with tifffile.TiffFile(str(src_path)) as tif:
-        first_page = tif.pages.first
-        if first_page.tags.get(34675) is None:
+        if tif.pages.first.tags.get(34675) is None:
             shutil.copy2(src_path, dst_path)
-            return "skipped (no ICC)"
+            return
 
         with tifffile.TiffWriter(str(dst_path), bigtiff=tif.is_bigtiff) as writer:
             for page_idx, page in enumerate(tif.pages):
@@ -57,7 +56,11 @@ def fix_tiff_icc(src_path: Path, dst_path: Path) -> str:
 
                 writer.write(data, **write_kwargs)
 
-    return f"fixed (ICC stripped, {len(tif.pages)} pages preserved)"
+
+@ray.remote(num_cpus=1, memory=(2 * 1024**3))
+def process_mask(item: tuple[Path, Path]) -> None:
+    src_path, dst_path = item
+    _fix_tiff_icc(src_path, dst_path)
 
 
 @with_cli_args(["+preprocessing=fix_mask_icc_profile"])
@@ -79,31 +82,19 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             raise RuntimeError(
                 f"No .tiff files found in artifact dir '{config.artifact_dir}' of run {config.source_run_id}."
             )
-        print(f"Processing {len(files)} masks...")
 
-        stats: dict[str, float] = {"fixed": 0, "skipped": 0, "errors": 0}
-        for src_path in files:
-            try:
-                status = fix_tiff_icc(src_path, fixed_dir / src_path.name)
-                if "fixed" in status:
-                    stats["fixed"] += 1
-                else:
-                    stats["skipped"] += 1
-                print(f"  {src_path.name}: {status}")
-            except Exception as e:
-                stats["errors"] += 1
-                print(f"  ERROR {src_path.name}: {e}")
+        items = [(src, fixed_dir / src.name) for src in files]
 
-        mlflow.log_metrics(stats)
+        process_items(
+            items,
+            process_item=process_mask,
+            fn_kwargs={},
+            max_concurrent=config.max_concurrent,
+        )
 
         logger.log_artifacts(
             local_dir=str(fixed_dir), artifact_path=config.mlflow_artifact_path
         )
-
-        if stats["errors"] > 0:
-            raise RuntimeError(
-                f"{stats['errors']} mask(s) failed to process; see logs for details."
-            )
 
 
 if __name__ == "__main__":
