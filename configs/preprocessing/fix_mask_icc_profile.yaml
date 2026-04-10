@@ -1,7 +1,4 @@
 # @package _global_
-
-dataset: {}
-
 source_run_id: ???
 artifact_dir: ???
 
