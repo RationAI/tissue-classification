@@ -2145,7 +2145,7 @@ requires-dist = [
     { name = "ratiopath", specifier = ">=1.2.0" },
     { name = "ray", specifier = ">=2.51.1" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
-    { name = "tifffile" },
+    { name = "tifffile", specifier = ">=2025.12.20" },
     { name = "tqdm", specifier = ">=4.66.0" },
 ]
 
