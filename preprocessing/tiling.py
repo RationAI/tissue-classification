@@ -194,6 +194,7 @@ def tiling(
     tile_extent: int,
     stride: int,
     mpp: float,
+    bad_slides: set[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run the tiling pipeline for a set of slides.
 
@@ -210,9 +211,24 @@ def tiling(
     path_to_annotation = dict(zip(df["wsi_path"], df["annotation_path"], strict=True))
     class_names = list(class_mapping.keys())
 
-    slides = read_slides(
-        df["wsi_path"].tolist(), tile_extent=tile_extent, stride=stride, mpp=mpp
-    ).map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
+    bad_slides = bad_slides or set()
+    is_bad = df["wsi_path"].map(lambda p: Path(p).name in bad_slides)
+    normal_paths = df.loc[~is_bad, "wsi_path"].tolist()
+    bad_paths = df.loc[is_bad, "wsi_path"].tolist()
+
+    read_kwargs = dict(tile_extent=tile_extent, stride=stride)
+    slide_datasets = []
+    if normal_paths:
+        slide_datasets.append(read_slides(normal_paths, mpp=mpp, **read_kwargs))
+    if bad_paths:
+        slide_datasets.append(read_slides(bad_paths, mpp=mpp * 2, **read_kwargs))
+
+    slides_ds = (
+        slide_datasets[0]
+        if len(slide_datasets) == 1
+        else slide_datasets[0].union(*slide_datasets[1:])
+    )
+    slides = slides_ds.map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
 
     tiles = (
         slides.map(
@@ -248,6 +264,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         "test": config.dataset.mlflow_artifacts.test_split_filename,
     }
 
+    bad_slides = set(config.dataset.exclusions.get("bad_slides", []))
+
     for split_name, split_artifact in split_artifacts.items():
         split_df = pd.read_csv(
             mlflow.artifacts.download_artifacts(
@@ -262,6 +280,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             tile_extent=config.tile_size,
             stride=config.stride,
             mpp=config.mpp,
+            bad_slides=bad_slides,
         )
 
         save_mlflow_dataset(df_slides, df_tiles, f"{split_name}_split")
