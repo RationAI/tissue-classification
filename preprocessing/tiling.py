@@ -240,8 +240,8 @@ def tiling(
         .flat_map(
             tile_with_coverage,
             fn_args=(class_mapping,),
-            num_cpus=1,
-            memory=2 * 1024**3,
+            num_cpus=2,
+            memory=4 * 1024**3,
         )
         .repartition(target_num_rows_per_block=4096)
         .map(
