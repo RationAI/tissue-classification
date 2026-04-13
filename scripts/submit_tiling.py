@@ -5,10 +5,10 @@ submit_job(
     job_name="tissue-classification-tiling",
     username=...,
     cpu=8,
-    memory="32Gi",  # approximately 4GiB per process
+    memory="64Gi",
     public=False,
     script=[
-        "git clone --branch feature/implement-tiling-script https://gitlab.ics.muni.cz/rationai/digital-pathology/pathology/tissue-classification.git workdir",
+        "git clone https://gitlab.ics.muni.cz/rationai/digital-pathology/pathology/tissue-classification.git workdir",
         "cd workdir",
         "uv sync",
         "uv run -m preprocessing.tiling +experiment=...",
