@@ -8,18 +8,15 @@ import numpy as np
 import pandas as pd
 import ray
 from omegaconf import DictConfig, OmegaConf
-from PIL import Image, ImageDraw
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from rationai.tiling.writers import save_mlflow_dataset
 from ratiopath.parsers import Darwin7JSONParser, GeoJSONParser
 from ratiopath.ray import read_slides
-from ratiopath.tiling import grid_tiles
+from ratiopath.tiling import grid_tiles, tile_annotations
 from ratiopath.tiling.utils import row_hash
 from shapely import Polygon, make_valid
 from shapely.geometry.base import BaseGeometry
-
-BACKGROUND_VALUE = 255
 
 
 def get_validated_polygons(
@@ -52,53 +49,6 @@ def get_validated_polygons(
     return valid_polygons
 
 
-def extract_mapped_regions(
-    annotation_path: Path, class_mapping: dict[str, list[str]]
-) -> dict[str, list[BaseGeometry]] | None:
-    path_str = str(annotation_path)
-    if path_str.endswith((".geo.json", ".geojson")):
-        parser = GeoJSONParser(annotation_path)
-    elif path_str.endswith(".json"):
-        parser = Darwin7JSONParser(annotation_path)
-    else:
-        return None
-
-    return {
-        cls_name: get_validated_polygons(parser, original_names)
-        for cls_name, original_names in class_mapping.items()
-    }
-
-
-def rasterize_slide_mask(
-    extracted_regions: dict[str, list[BaseGeometry]],
-    mask_size: tuple[int, int],
-    downsample: float,
-    class_indices: dict[str, int],
-) -> np.ndarray:
-    """Draw all class polygons into a single uint8 mask at slide-level resolution.
-
-    Background pixels are BACKGROUND_VALUE; class pixels carry class_indices[name];
-    polygon holes are re-filled with BACKGROUND_VALUE.
-    """
-    mask = Image.new("L", size=mask_size, color=BACKGROUND_VALUE)
-    drawer = ImageDraw.Draw(mask)
-    inv = 1.0 / downsample
-    for cls_name, polygons in extracted_regions.items():
-        idx = class_indices[cls_name]
-        for poly in polygons:
-            if poly.is_empty:
-                continue
-            drawer.polygon(
-                [(x * inv, y * inv) for x, y in poly.exterior.coords], fill=idx
-            )
-            for interior in poly.interiors:
-                drawer.polygon(
-                    [(x * inv, y * inv) for x, y in interior.coords],
-                    fill=BACKGROUND_VALUE,
-                )
-    return np.asarray(mask)
-
-
 def add_annotation_path(
     row: dict[str, Any], path_to_annotation: dict[str, str]
 ) -> dict[str, Any]:
@@ -118,39 +68,68 @@ def tile_with_coverage(
     - roi_coverage: fraction of the central half-size ROI covered by the class
     """
     annotation_path = Path(row["annotation_path"])
-    extracted_regions = extract_mapped_regions(annotation_path, class_mapping)
-    if extracted_regions is None:
+    path_str = str(annotation_path)
+
+    if path_str.endswith((".geo.json", ".geojson")):
+        parser = GeoJSONParser(annotation_path)
+    elif path_str.endswith(".json"):
+        parser = Darwin7JSONParser(annotation_path)
+    else:
         return []
+
+    class_annotations = {
+        cls_name: get_validated_polygons(parser, original_names)
+        for cls_name, original_names in class_mapping.items()
+    }
 
     tile_w, tile_h = row["tile_extent_x"], row["tile_extent_y"]
-    coordinates = list(
-        grid_tiles(
-            slide_extent=(row["extent_x"], row["extent_y"]),
-            tile_extent=(tile_w, tile_h),
-            stride=(row["stride_x"], row["stride_y"]),
+    tile_polygon = Polygon([(0, 0), (tile_w, 0), (tile_w, tile_h), (0, tile_h)])
+    tile_area = tile_polygon.area
+
+    cx, cy = tile_w / 2, tile_h / 2
+    roi_polygon = Polygon(
+        [
+            (cx - tile_w / 4, cy - tile_h / 4),
+            (cx + tile_w / 4, cy - tile_h / 4),
+            (cx + tile_w / 4, cy + tile_h / 4),
+            (cx - tile_w / 4, cy + tile_h / 4),
+        ]
+    )
+    roi_area = roi_polygon.area
+
+    coordinates = np.array(
+        list(
+            grid_tiles(
+                slide_extent=(row["extent_x"], row["extent_y"]),
+                tile_extent=(tile_w, tile_h),
+                stride=(row["stride_x"], row["stride_y"]),
+            )
         )
     )
-    if not coordinates:
+
+    if len(coordinates) == 0:
         return []
 
-    class_indices = {name: i for i, name in enumerate(class_mapping)}
-    slide_mask = rasterize_slide_mask(
-        extracted_regions,
-        (row["extent_x"], row["extent_y"]),
-        row["downsample"],
-        class_indices,
-    )
+    class_coverages = {
+        cls_name: [
+            (tile_intersection.area / tile_area, roi_intersection.area / roi_area)
+            for tile_intersection, roi_intersection in zip(
+                tile_annotations(
+                    annotations, tile_polygon, coordinates, row["downsample"]
+                ),
+                tile_annotations(
+                    annotations, roi_polygon, coordinates, row["downsample"]
+                ),
+                strict=True,
+            )
+        ]
+        for cls_name, annotations in class_annotations.items()
+    }
 
-    qx, qy = tile_w // 4, tile_h // 4
-    roi_w, roi_h = tile_w // 2, tile_h // 2
-
-    results = []
-    for x, y in coordinates:
-        crop = slide_mask[y : y + tile_h, x : x + tile_w]
-        roi = crop[qy : qy + roi_h, qx : qx + roi_w]
-        out: dict[str, Any] = {
-            "tile_x": int(x),
-            "tile_y": int(y),
+    return [
+        {
+            "tile_x": int(coordinates[i, 0]),
+            "tile_y": int(coordinates[i, 1]),
             "path": row["path"],
             "slide_id": row["id"],
             "level": row["level"],
@@ -158,18 +137,17 @@ def tile_with_coverage(
             "tile_extent_y": tile_h,
             "mpp_x": row["mpp_x"],
             "mpp_y": row["mpp_y"],
+            **{
+                f"tile_coverage_{cls_name}": class_coverages[cls_name][i][0]
+                for cls_name in class_annotations
+            },
+            **{
+                f"roi_coverage_{cls_name}": class_coverages[cls_name][i][1]
+                for cls_name in class_annotations
+            },
         }
-        tile_area = crop.size
-        roi_area = roi.size
-        for cls_name, idx in class_indices.items():
-            out[f"tile_coverage_{cls_name}"] = (
-                float(np.count_nonzero(crop == idx)) / tile_area if tile_area else 0.0
-            )
-            out[f"roi_coverage_{cls_name}"] = (
-                float(np.count_nonzero(roi == idx)) / roi_area if roi_area else 0.0
-            )
-        results.append(out)
-    return results
+        for i in range(len(coordinates))
+    ]
 
 
 def select(row: dict[str, Any], class_names: list[str]) -> dict[str, Any]:
@@ -194,7 +172,6 @@ def tiling(
     tile_extent: int,
     stride: int,
     mpp: float,
-    bad_slides: set[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run the tiling pipeline for a set of slides.
 
@@ -211,24 +188,9 @@ def tiling(
     path_to_annotation = dict(zip(df["wsi_path"], df["annotation_path"], strict=True))
     class_names = list(class_mapping.keys())
 
-    bad_slides = bad_slides or set()
-    is_bad = df["wsi_path"].map(lambda p: Path(p).name in bad_slides)
-    normal_paths = df.loc[~is_bad, "wsi_path"].tolist()
-    bad_paths = df.loc[is_bad, "wsi_path"].tolist()
-
-    read_kwargs = dict(tile_extent=tile_extent, stride=stride)
-    slide_datasets = []
-    if normal_paths:
-        slide_datasets.append(read_slides(normal_paths, mpp=mpp, **read_kwargs))
-    if bad_paths:
-        slide_datasets.append(read_slides(bad_paths, mpp=mpp * 2, **read_kwargs))
-
-    slides_ds = (
-        slide_datasets[0]
-        if len(slide_datasets) == 1
-        else slide_datasets[0].union(*slide_datasets[1:])
-    )
-    slides = slides_ds.map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
+    slides = read_slides(
+        df["wsi_path"].tolist(), tile_extent=tile_extent, stride=stride, mpp=mpp
+    ).map(row_hash, num_cpus=0.1, memory=128 * 1024**2)
 
     tiles = (
         slides.map(
@@ -264,8 +226,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         "test": config.dataset.mlflow_artifacts.test_split_filename,
     }
 
-    bad_slides = set(config.dataset.exclusions.get("bad_slides", []))
-
     for split_name, split_artifact in split_artifacts.items():
         split_df = pd.read_csv(
             mlflow.artifacts.download_artifacts(
@@ -280,7 +240,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             tile_extent=config.tile_size,
             stride=config.stride,
             mpp=config.mpp,
-            bad_slides=bad_slides,
         )
 
         save_mlflow_dataset(df_slides, df_tiles, f"{split_name}_split")
