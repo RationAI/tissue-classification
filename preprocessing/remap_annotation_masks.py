@@ -22,9 +22,7 @@ def remap_mask(
     dst_path = Path(output_dir) / src_path.name
     lut_array = np.array(lut, dtype=np.uint8)
 
-    with tifffile.TiffFile(str(src_path)) as tif:
-        num_pages = len(tif.pages)
-
+    with tifffile.TiffFile(str(src_path)) as tif:  # noqa: SIM117
         with tifffile.TiffWriter(str(dst_path), bigtiff=tif.is_bigtiff) as writer:
             for page_idx, page in enumerate(tif.pages):
                 data = page.asarray()
@@ -63,8 +61,6 @@ def remap_mask(
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    source_run_id = config.source_run_id
-    artifact_path = config.source_artifact_path
     n_classes = config.n_classes
 
     # Build LUT: evenly spread class values across [1, 255], background (255) -> 0
@@ -73,12 +69,17 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         lut[i] = round(255 * (i + 1) / n_classes)
     lut[255] = 0
 
-    local_masks_dir = Path(download_artifacts(run_id=source_run_id, artifact_path=artifact_path))
+    local_masks_dir = Path(
+        download_artifacts(
+            run_id=config.source_run_id, artifact_path=config.source_artifact_path
+        )
+    )
     mask_files = sorted(local_masks_dir.glob("*.tiff"))
 
     with TemporaryDirectory(dir=Path.cwd()) as output_dir:
         # Copy non-TIFF files (e.g. missing_annotations.csv) as-is
         import shutil
+
         for f in local_masks_dir.iterdir():
             if f.suffix != ".tiff":
                 shutil.copy2(f, Path(output_dir) / f.name)
