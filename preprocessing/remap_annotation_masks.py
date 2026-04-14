@@ -1,15 +1,17 @@
+import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import hydra
 import numpy as np
 import ray
-import tifffile
 from mlflow.artifacts import download_artifacts
 from omegaconf import DictConfig
 from rationai.masks.processing import process_items
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
+
+from preprocessing._tiff_utils import rewrite_tiff
 
 
 @ray.remote(num_cpus=1, memory=(4 * 1024**3))
@@ -21,40 +23,7 @@ def remap_mask(
     src_path = Path(item)
     dst_path = Path(output_dir) / src_path.name
     lut_array = np.array(lut, dtype=np.uint8)
-
-    with tifffile.TiffFile(str(src_path)) as tif:  # noqa: SIM117
-        with tifffile.TiffWriter(str(dst_path), bigtiff=tif.is_bigtiff) as writer:
-            for page_idx, page in enumerate(tif.pages):
-                data = page.asarray()
-                if data.ndim == 3:
-                    data = data[..., 0]
-
-                data = lut_array[data]
-
-                write_kwargs = {
-                    "photometric": "minisblack",
-                    "compression": page.compression,
-                }
-
-                if page.is_tiled:
-                    write_kwargs["tile"] = (page.tilelength, page.tilewidth)
-
-                pred_tag = page.tags.get(317)
-                if pred_tag and pred_tag.value > 1:
-                    write_kwargs["predictor"] = pred_tag.value
-
-                xres_tag = page.tags.get(282)
-                yres_tag = page.tags.get(283)
-                res_unit_tag = page.tags.get(296)
-                if xres_tag and yres_tag:
-                    write_kwargs["resolution"] = (xres_tag.value, yres_tag.value)
-                    if res_unit_tag:
-                        write_kwargs["resolutionunit"] = res_unit_tag.value
-
-                if page_idx > 0:
-                    write_kwargs["subfiletype"] = 1  # REDUCEDIMAGE
-
-                writer.write(data, **write_kwargs)
+    rewrite_tiff(src_path, dst_path, transform=lambda data: lut_array[data])
 
 
 @with_cli_args(["+preprocessing=remap_annotation_masks"])
@@ -77,9 +46,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     mask_files = sorted(local_masks_dir.glob("*.tiff"))
 
     with TemporaryDirectory(dir=Path.cwd()) as output_dir:
-        # Copy non-TIFF files (e.g. missing_annotations.csv) as-is
-        import shutil
-
         for f in local_masks_dir.iterdir():
             if f.suffix != ".tiff":
                 shutil.copy2(f, Path(output_dir) / f.name)
