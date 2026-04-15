@@ -1,4 +1,3 @@
-import hashlib
 import os
 import re
 import tempfile
@@ -22,42 +21,18 @@ from shapely import Polygon, make_valid
 from shapely.geometry.base import BaseGeometry
 
 
-def _file_digest(path: str) -> str:
-    h = hashlib.md5()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def save_mlflow_dataset(
     slides: pd.DataFrame, tiles: pd.DataFrame, dataset_name: str
 ) -> None:
-    """Store slide and tile datasets in MLflow.
+    """Store slide and tile datasets in MLflow as parquet artifacts.
 
-    Equivalent to rationai.tiling.writers.save_mlflow_dataset but computes the
-    dataset digest from the parquet file instead of the DataFrame, avoiding an
-    O(n) in-memory hash over tens of millions of rows.
+    Skips dataset registration via log_input to avoid the O(n) DataFrame hash
+    in mlflow.data.pandas_dataset.from_pandas on large tile DataFrames.
     """
     with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp_dir:
-        slides_path = f"{tmp_dir}/slides.parquet"
-        tiles_path = f"{tmp_dir}/tiles.parquet"
-        slides.to_parquet(slides_path, index=False)
-        tiles.to_parquet(tiles_path, index=False)
+        slides.to_parquet(f"{tmp_dir}/slides.parquet", index=False)
+        tiles.to_parquet(f"{tmp_dir}/tiles.parquet", index=False)
         mlflow.log_artifacts(tmp_dir, dataset_name)
-
-        slides_digest = _file_digest(slides_path)
-        tiles_digest = _file_digest(tiles_path)
-
-    slide_dataset = mlflow.data.pandas_dataset.from_pandas(
-        slides, name=dataset_name, digest=slides_digest
-    )
-    tile_dataset = mlflow.data.pandas_dataset.from_pandas(
-        tiles, name=dataset_name, digest=tiles_digest
-    )
-
-    mlflow.log_input(slide_dataset, context="slides")
-    mlflow.log_input(tile_dataset, context="tiles")
 
 
 def get_validated_polygons(
