@@ -1,8 +1,12 @@
+import hashlib
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import hydra
+import mlflow
 import mlflow.artifacts
 import numpy as np
 import pandas as pd
@@ -10,13 +14,50 @@ import ray
 from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
-from rationai.tiling.writers import save_mlflow_dataset
 from ratiopath.parsers import Darwin7JSONParser, GeoJSONParser
 from ratiopath.ray import read_slides
 from ratiopath.tiling import grid_tiles, tile_annotations
 from ratiopath.tiling.utils import row_hash
 from shapely import Polygon, make_valid
 from shapely.geometry.base import BaseGeometry
+
+
+def _file_digest(path: str) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def save_mlflow_dataset(
+    slides: pd.DataFrame, tiles: pd.DataFrame, dataset_name: str
+) -> None:
+    """Store slide and tile datasets in MLflow.
+
+    Equivalent to rationai.tiling.writers.save_mlflow_dataset but computes the
+    dataset digest from the parquet file instead of the DataFrame, avoiding an
+    O(n) in-memory hash over tens of millions of rows.
+    """
+    with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp_dir:
+        slides_path = f"{tmp_dir}/slides.parquet"
+        tiles_path = f"{tmp_dir}/tiles.parquet"
+        slides.to_parquet(slides_path, index=False)
+        tiles.to_parquet(tiles_path, index=False)
+        mlflow.log_artifacts(tmp_dir, dataset_name)
+
+        slides_digest = _file_digest(slides_path)
+        tiles_digest = _file_digest(tiles_path)
+
+    slide_dataset = mlflow.data.pandas_dataset.from_pandas(
+        slides, name=dataset_name, digest=slides_digest
+    )
+    tile_dataset = mlflow.data.pandas_dataset.from_pandas(
+        tiles, name=dataset_name, digest=tiles_digest
+    )
+
+    mlflow.log_input(slide_dataset, context="slides")
+    mlflow.log_input(tile_dataset, context="tiles")
 
 
 def get_validated_polygons(
