@@ -1,4 +1,3 @@
-import os
 import re
 import tempfile
 from pathlib import Path
@@ -19,20 +18,6 @@ from ratiopath.tiling import grid_tiles, tile_annotations
 from ratiopath.tiling.utils import row_hash
 from shapely import Polygon, make_valid
 from shapely.geometry.base import BaseGeometry
-
-
-def save_mlflow_dataset(
-    slides: pd.DataFrame, tiles: pd.DataFrame, dataset_name: str
-) -> None:
-    """Store slide and tile datasets in MLflow as parquet artifacts.
-
-    Skips dataset registration via log_input to avoid the O(n) DataFrame hash
-    in mlflow.data.pandas_dataset.from_pandas on large tile DataFrames.
-    """
-    with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp_dir:
-        slides.to_parquet(f"{tmp_dir}/slides.parquet", index=False)
-        tiles.to_parquet(f"{tmp_dir}/tiles.parquet", index=False)
-        mlflow.log_artifacts(tmp_dir, dataset_name)
 
 
 def get_validated_polygons(
@@ -258,7 +243,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             mpp=config.mpp,
         )
 
-        save_mlflow_dataset(df_slides, df_tiles, f"{split_name}_split")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            df_slides.to_parquet(f"{tmp_dir}/slides.parquet", index=False)
+            df_tiles.to_parquet(f"{tmp_dir}/tiles.parquet", index=False)
+            mlflow.log_artifacts(tmp_dir, f"{split_name}_split")
 
 
 if __name__ == "__main__":
