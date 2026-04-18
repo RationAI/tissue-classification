@@ -14,7 +14,12 @@ def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
     )
-    return pd.read_parquet(local_path)
+    print(f"[DEBUG] Downloaded to: {local_path}", flush=True)
+    print(f"[DEBUG] File size: {Path(local_path).stat().st_size / 1024**2:.1f} MB", flush=True)
+    print("[DEBUG] Reading parquet...", flush=True)
+    df = pd.read_parquet(local_path)
+    print(f"[DEBUG] Read complete: {df.shape}", flush=True)
+    return df
 
 
 def collapse_rare_labels(df: pd.DataFrame, n_folds: int) -> pd.DataFrame:
