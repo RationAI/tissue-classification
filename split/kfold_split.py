@@ -83,10 +83,12 @@ def log_fold_statistics(df: pd.DataFrame, n_folds: int) -> None:
 @hydra.main(config_path="../configs", config_name="split", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
+    print("[DEBUG] Loading parquet artifact...", flush=True)
     df = load_parquet_artifact(
         config.dataset.mlflow_artifacts.tiling_run_id,
         config.dataset.mlflow_artifacts.train_tiles_filename,
     )
+    print(f"[DEBUG] Loaded {len(df)} rows, columns: {list(df.columns)}", flush=True)
 
     # Derive label and tissue_prop from ROI coverage columns.
     # roi_coverage_* measures the fraction of the central half-size ROI covered by each
@@ -94,23 +96,30 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     # tissue_prop: total annotated tissue fraction across all classes in the ROI.
     # label: the dominant class in the ROI (highest coverage).
     roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
+    print(f"[DEBUG] ROI columns: {roi_cols}", flush=True)
     df["tissue_prop"] = df[roi_cols].sum(axis=1)
+    print("[DEBUG] tissue_prop computed", flush=True)
     df["label"] = df[roi_cols].idxmax(axis=1).str.removeprefix("roi_coverage_")
+    print("[DEBUG] label computed via idxmax", flush=True)
     df.loc[df["tissue_prop"] == 0, "label"] = "background"
+    print(f"[DEBUG] Label distribution:\n{df['label'].value_counts()}", flush=True)
 
     df = collapse_rare_labels(df, n_folds=config.n_folds)
-
-    mlflow.sklearn.autolog(disable=True)
+    print("[DEBUG] Rare labels collapsed", flush=True)
     df = assign_folds(df, n_folds=config.n_folds, random_state=config.random_state)
+    print("[DEBUG] Folds assigned", flush=True)
 
     log_fold_statistics(df, n_folds=config.n_folds)
+    print("[DEBUG] Statistics logged", flush=True)
 
     with TemporaryDirectory() as output_dir:
         out_path = Path(output_dir)
         df.to_parquet(out_path / "kfold_tiles.parquet", index=False)
+        print("[DEBUG] Parquet written", flush=True)
         logger.log_artifacts(
             local_dir=str(out_path), artifact_path=config.mlflow_artifact_path
         )
+        print("[DEBUG] Artifacts logged, done", flush=True)
 
 
 if __name__ == "__main__":
