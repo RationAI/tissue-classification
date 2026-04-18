@@ -99,6 +99,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     df.loc[df["tissue_prop"] == 0, "label"] = "background"
 
     df = collapse_rare_labels(df, n_folds=config.n_folds)
+
+    mlflow.sklearn.autolog(disable=True)
     df = assign_folds(df, n_folds=config.n_folds, random_state=config.random_state)
 
     log_fold_statistics(df, n_folds=config.n_folds)
