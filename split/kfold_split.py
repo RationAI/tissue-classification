@@ -16,8 +16,19 @@ def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
     )
     print(f"[DEBUG] Downloaded to: {local_path}", flush=True)
     print(f"[DEBUG] File size: {Path(local_path).stat().st_size / 1024**2:.1f} MB", flush=True)
-    print("[DEBUG] Reading parquet...", flush=True)
-    df = pd.read_parquet(local_path, use_threads=False)
+    import pyarrow.parquet as pq
+
+    print("[DEBUG] Reading parquet metadata...", flush=True)
+    meta = pq.read_metadata(local_path)
+    print(f"[DEBUG] Metadata: {meta.num_rows} rows, {meta.num_columns} cols, {meta.num_row_groups} row groups", flush=True)
+    print("[DEBUG] Reading parquet schema...", flush=True)
+    schema = pq.read_schema(local_path)
+    print(f"[DEBUG] Schema: {schema}", flush=True)
+    print("[DEBUG] Reading parquet table...", flush=True)
+    table = pq.read_table(local_path, use_threads=False)
+    print(f"[DEBUG] Table read: {table.shape}", flush=True)
+    print("[DEBUG] Converting to pandas...", flush=True)
+    df = table.to_pandas()
     print(f"[DEBUG] Read complete: {df.shape}", flush=True)
     return df
 
