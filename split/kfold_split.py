@@ -5,6 +5,7 @@ import hydra
 import mlflow
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 from omegaconf import DictConfig
 from rationai.mlkit import autolog, with_cli_args
@@ -13,12 +14,20 @@ from sklearn.model_selection import StratifiedKFold
 
 
 ROI_CLASS_NAMES = [
-    "Nerve", "Blood", "Connective-Tissue", "Fat", "Epithelium", "Muscle", "Other",
+    "Nerve",
+    "Blood",
+    "Connective-Tissue",
+    "Fat",
+    "Epithelium",
+    "Muscle",
+    "Other",
 ]
 ROI_COLS = [f"roi_coverage_{name}" for name in ROI_CLASS_NAMES]
 
 
-def derive_labels_streaming(parquet_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def derive_labels_streaming(
+    parquet_path: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Derive label, tissue_prop, and slide_id from a parquet file in a streaming fashion.
 
     Reads only the roi_coverage_* and slide_id columns, one row group at a time,
@@ -60,9 +69,7 @@ def collapse_rare_labels(labels: np.ndarray, n_folds: int) -> np.ndarray:
         print(
             f"WARNING: {len(rare)} label(s) have fewer than {n_folds} tiles and will "
             f"be collapsed into 'background' for stratification: "
-            + ", ".join(
-                f"{cls}({counts[unique == cls][0]})" for cls in rare
-            ),
+            + ", ".join(f"{cls}({counts[unique == cls][0]})" for cls in rare),
             flush=True,
         )
         labels = labels.copy()
@@ -93,14 +100,18 @@ def log_fold_statistics(
         mlflow.log_metric(f"fold_{fold}_val_tiles", int(mask.sum()))
         mlflow.log_metric(f"fold_{fold}_val_slides", len(np.unique(slide_ids[mask])))
         mlflow.log_metric(
-            f"fold_{fold}_val_tissue_prop_mean", round(float(tissue_props[mask].mean()), 4)
+            f"fold_{fold}_val_tissue_prop_mean",
+            round(float(tissue_props[mask].mean()), 4),
         )
         mlflow.log_metric(
-            f"fold_{fold}_val_tissue_prop_std", round(float(tissue_props[mask].std()), 4)
+            f"fold_{fold}_val_tissue_prop_std",
+            round(float(tissue_props[mask].std()), 4),
         )
 
     stats_df = pd.DataFrame({"fold": folds, "label": labels})
-    label_dist = stats_df.groupby(["fold", "label"]).size().unstack(fill_value=0).reset_index()
+    label_dist = (
+        stats_df.groupby(["fold", "label"]).size().unstack(fill_value=0).reset_index()
+    )
     mlflow.log_table(
         data=label_dist,
         artifact_file="fold_statistics/label_distribution.json",
@@ -139,7 +150,9 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     labels, tissue_props, slide_ids = derive_labels_streaming(parquet_path)
 
     labels = collapse_rare_labels(labels, n_folds=config.n_folds)
-    folds = assign_folds(labels, n_folds=config.n_folds, random_state=config.random_state)
+    folds = assign_folds(
+        labels, n_folds=config.n_folds, random_state=config.random_state
+    )
 
     log_fold_statistics(labels, tissue_props, slide_ids, folds, n_folds=config.n_folds)
 
@@ -158,7 +171,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             batch_df["fold"] = folds[offset : offset + n]
             offset += n
 
-            table = pq.lib.Table.from_pandas(batch_df, preserve_index=False)
+            table = pa.Table.from_pandas(batch_df, preserve_index=False)
             if writer is None:
                 writer = pq.ParquetWriter(str(out_path), table.schema)
             writer.write_table(table)
