@@ -1,0 +1,16 @@
+# @package _global_
+
+source_run_id: ???
+source_artifact_path: annotation_masks
+
+n_classes: ???
+
+max_concurrent: 4
+mlflow_artifact_path: annotation_masks
+
+metadata:
+  run_name: Remap Annotation Masks
+  description: Remaps annotation mask class values to be evenly spread across [1, 255] for use with the classify shader in the report pipeline.
+  hyperparams:
+    source_run_id: ${source_run_id}
+    n_classes: ${n_classes}
