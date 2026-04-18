@@ -1,0 +1,7 @@
+# @package _global_
+
+defaults:
+  - _self_
+
+source_run_id: b776615946ea4314a109e3966b5950f3
+n_classes: 7
