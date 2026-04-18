@@ -1,8 +1,10 @@
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import hydra
+import mlflow
 import mlflow.artifacts
 import numpy as np
 import pandas as pd
@@ -10,7 +12,6 @@ import ray
 from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
-from rationai.tiling.writers import save_mlflow_dataset
 from ratiopath.parsers import Darwin7JSONParser, GeoJSONParser
 from ratiopath.ray import read_slides
 from ratiopath.tiling import grid_tiles, tile_annotations
@@ -242,7 +243,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             mpp=config.mpp,
         )
 
-        save_mlflow_dataset(df_slides, df_tiles, f"{split_name}_split")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            df_slides.to_parquet(f"{tmp_dir}/slides.parquet", index=False)
+            df_tiles.to_parquet(f"{tmp_dir}/tiles.parquet", index=False)
+            mlflow.log_artifacts(tmp_dir, f"{split_name}_split")
 
 
 if __name__ == "__main__":
