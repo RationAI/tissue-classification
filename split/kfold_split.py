@@ -10,26 +10,13 @@ from rationai.mlkit.lightning.loggers import MLFlowLogger
 from sklearn.model_selection import StratifiedKFold
 
 
-def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
+def load_parquet_artifact(
+    run_id: str, artifact_path: str, columns: list[str] | None = None
+) -> pd.DataFrame:
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
     )
-    print(f"[DEBUG] Downloaded to: {local_path}", flush=True)
-    print(f"[DEBUG] File size: {Path(local_path).stat().st_size / 1024**2:.1f} MB", flush=True)
-    import pyarrow.parquet as pq
-
-    print("[DEBUG] Reading parquet metadata...", flush=True)
-    meta = pq.read_metadata(local_path)
-    print(f"[DEBUG] Metadata: {meta.num_rows} rows, {meta.num_columns} cols, {meta.num_row_groups} row groups", flush=True)
-    print("[DEBUG] Reading parquet schema...", flush=True)
-    schema = pq.read_schema(local_path)
-    print(f"[DEBUG] Schema: {schema}", flush=True)
-    print("[DEBUG] Reading parquet table...", flush=True)
-    table = pq.read_table(local_path, use_threads=False)
-    print(f"[DEBUG] Table read: {table.shape}", flush=True)
-    print("[DEBUG] Converting to pandas...", flush=True)
-    df = table.to_pandas()
-    print(f"[DEBUG] Read complete: {df.shape}", flush=True)
+    return pd.read_parquet(local_path, columns=columns)
     return df
 
 
@@ -99,43 +86,39 @@ def log_fold_statistics(df: pd.DataFrame, n_folds: int) -> None:
 @hydra.main(config_path="../configs", config_name="split", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    print("[DEBUG] Loading parquet artifact...", flush=True)
+    # Only load columns needed for fold assignment — the full parquet has ~80M rows
+    # and loading all 17 columns would exceed the job's memory budget.
+    roi_class_names = [
+        "Nerve", "Blood", "Connective-Tissue", "Fat", "Epithelium", "Muscle", "Other",
+    ]
+    roi_cols = [f"roi_coverage_{name}" for name in roi_class_names]
+
     df = load_parquet_artifact(
         config.dataset.mlflow_artifacts.tiling_run_id,
         config.dataset.mlflow_artifacts.train_tiles_filename,
+        columns=["slide_id", "x", "y"] + roi_cols,
     )
-    print(f"[DEBUG] Loaded {len(df)} rows, columns: {list(df.columns)}", flush=True)
 
     # Derive label and tissue_prop from ROI coverage columns.
     # roi_coverage_* measures the fraction of the central half-size ROI covered by each
     # class, which is more representative of tile content than the full-tile coverage.
     # tissue_prop: total annotated tissue fraction across all classes in the ROI.
     # label: the dominant class in the ROI (highest coverage).
-    roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
-    print(f"[DEBUG] ROI columns: {roi_cols}", flush=True)
     df["tissue_prop"] = df[roi_cols].sum(axis=1)
-    print("[DEBUG] tissue_prop computed", flush=True)
     df["label"] = df[roi_cols].idxmax(axis=1).str.removeprefix("roi_coverage_")
-    print("[DEBUG] label computed via idxmax", flush=True)
     df.loc[df["tissue_prop"] == 0, "label"] = "background"
-    print(f"[DEBUG] Label distribution:\n{df['label'].value_counts()}", flush=True)
 
     df = collapse_rare_labels(df, n_folds=config.n_folds)
-    print("[DEBUG] Rare labels collapsed", flush=True)
     df = assign_folds(df, n_folds=config.n_folds, random_state=config.random_state)
-    print("[DEBUG] Folds assigned", flush=True)
 
     log_fold_statistics(df, n_folds=config.n_folds)
-    print("[DEBUG] Statistics logged", flush=True)
 
     with TemporaryDirectory() as output_dir:
         out_path = Path(output_dir)
         df.to_parquet(out_path / "kfold_tiles.parquet", index=False)
-        print("[DEBUG] Parquet written", flush=True)
         logger.log_artifacts(
             local_dir=str(out_path), artifact_path=config.mlflow_artifact_path
         )
-        print("[DEBUG] Artifacts logged, done", flush=True)
 
 
 if __name__ == "__main__":

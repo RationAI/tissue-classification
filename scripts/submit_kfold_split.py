@@ -5,7 +5,7 @@ submit_job(
     job_name="tissue-classification-kfold-split",
     username=...,
     cpu=4,
-    memory="16Gi",
+    memory="32Gi",
     gpu=None,
     public=False,
     script=[
