@@ -68,6 +68,15 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         config.dataset.mlflow_artifacts.train_tiles_filename,
     )
 
+    # Derive label and tissue_prop from ROI coverage columns.
+    # roi_coverage_* measures the fraction of the central half-size ROI covered by each
+    # class, which is more representative of tile content than the full-tile coverage.
+    # tissue_prop: total annotated tissue fraction across all classes in the ROI.
+    # label: the dominant class in the ROI (highest coverage).
+    roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
+    df["tissue_prop"] = df[roi_cols].sum(axis=1)
+    df["label"] = df[roi_cols].idxmax(axis=1).str.removeprefix("roi_coverage_")
+
     df = assign_folds(df, n_folds=config.n_folds, random_state=config.random_state)
 
     log_fold_statistics(df, n_folds=config.n_folds)
