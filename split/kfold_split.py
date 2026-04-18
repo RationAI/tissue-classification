@@ -38,7 +38,7 @@ def derive_labels_streaming(
     tissue_props = []
     slide_ids = []
 
-    for batch in pf.iter_batches(columns=["slide_id"] + ROI_COLS, batch_size=1_000_000):
+    for batch in pf.iter_batches(columns=["slide_id", *ROI_COLS], batch_size=1_000_000):
         batch_df = batch.to_pandas()
         roi_values = batch_df[ROI_COLS]
         tp = roi_values.sum(axis=1).values
