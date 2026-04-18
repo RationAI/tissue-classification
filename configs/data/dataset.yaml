@@ -12,7 +12,7 @@ dataset:
     train_test_split_run_id: "90d7c88418ae4b879c3febbb70e9e741"
     train_split_filename: "split_mapping/train_split.csv"
     test_split_filename: "split_mapping/test_split.csv"
-    tiling_run_id: ???
+    tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
     train_tiles_filename: "train_split/tiles.parquet"
 
   exclusions:
