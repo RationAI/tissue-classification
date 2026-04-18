@@ -17,7 +17,7 @@ def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
     print(f"[DEBUG] Downloaded to: {local_path}", flush=True)
     print(f"[DEBUG] File size: {Path(local_path).stat().st_size / 1024**2:.1f} MB", flush=True)
     print("[DEBUG] Reading parquet...", flush=True)
-    df = pd.read_parquet(local_path)
+    df = pd.read_parquet(local_path, use_threads=False)
     print(f"[DEBUG] Read complete: {df.shape}", flush=True)
     return df
 
