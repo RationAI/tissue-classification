@@ -17,6 +17,26 @@ def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
     return pd.read_parquet(local_path)
 
 
+def collapse_rare_labels(df: pd.DataFrame, n_folds: int) -> pd.DataFrame:
+    """Collapse rare labels into 'background' to prevent StratifiedKFold from crashing.
+
+    StratifiedKFold requires at least n_folds samples per class. Classes with fewer
+    samples than that are relabeled as 'background' so the split can proceed. A warning
+    is printed listing every affected class and its tile count.
+    """
+    counts = df["label"].value_counts()
+    rare = counts[counts < n_folds].index.tolist()
+    if rare:
+        print(
+            f"WARNING: {len(rare)} label(s) have fewer than {n_folds} tiles and will "
+            f"be collapsed into 'background' for stratification: "
+            + ", ".join(f"{cls}({counts[cls]})" for cls in rare)
+        )
+        df = df.copy()
+        df.loc[df["label"].isin(rare), "label"] = "background"
+    return df
+
+
 def assign_folds(df: pd.DataFrame, n_folds: int, random_state: int) -> pd.DataFrame:
     """Assign each tile to a validation fold using stratified k-fold on tissue class label."""
     skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
@@ -76,7 +96,9 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
     df["tissue_prop"] = df[roi_cols].sum(axis=1)
     df["label"] = df[roi_cols].idxmax(axis=1).str.removeprefix("roi_coverage_")
+    df.loc[df["tissue_prop"] == 0, "label"] = "background"
 
+    df = collapse_rare_labels(df, n_folds=config.n_folds)
     df = assign_folds(df, n_folds=config.n_folds, random_state=config.random_state)
 
     log_fold_statistics(df, n_folds=config.n_folds)
