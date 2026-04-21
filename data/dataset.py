@@ -60,7 +60,7 @@ class TissueClassificationDataset(MetaTiledSlides[tuple[NDArray[np.uint8], int]]
             tiles_dir = Path(download_artifacts(artifact_uri=tiles_uri))
 
             slides = cast(
-                HFDataset,
+                "HFDataset",
                 load_dataset(
                     "parquet",
                     data_files=str(slides_dir / "slides.parquet"),
@@ -68,7 +68,7 @@ class TissueClassificationDataset(MetaTiledSlides[tuple[NDArray[np.uint8], int]]
                 ),
             )
             tiles = cast(
-                HFDataset,
+                "HFDataset",
                 load_dataset(
                     "parquet",
                     data_files=str(tiles_dir / "kfold_tiles.parquet"),
@@ -83,7 +83,7 @@ class TissueClassificationDataset(MetaTiledSlides[tuple[NDArray[np.uint8], int]]
         self.slides = slides
         self.tiles = tiles.sort("slide_id")
         self._slide_id_to_indices = self._build_tile_index(self.tiles)
-        ConcatDataset.__init__(self, self.generate_datasets())
+        ConcatDataset.__init__(self, list(self.generate_datasets()))
 
     def generate_datasets(self) -> Iterable[LabeledTilesDataset]:
         return (
