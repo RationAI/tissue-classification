@@ -31,13 +31,20 @@ def _draw_tile_outlines(
     h_cols = (xs[:, None] + np.arange(tw)[None, :]).ravel()  # (n × tw,)
     v_rows = (ys[:, None] + np.arange(th)[None, :]).ravel()  # (n × th,)
 
+    h_cols_in = (h_cols >= 0) & (h_cols < width)
+    v_rows_in = (v_rows >= 0) & (v_rows < height)
+
     for dy in range(ow):
-        mask[np.repeat(ys + dy, tw), h_cols] = 255              # top border
-        mask[np.repeat(ys + th - ow + dy, tw), h_cols] = 255    # bottom border
+        for ry in (ys + dy, ys + th - ow + dy):
+            rows = np.repeat(ry, tw)
+            ok = h_cols_in & (rows >= 0) & (rows < height)
+            mask[rows[ok], h_cols[ok]] = 255
 
     for dx in range(ow):
-        mask[v_rows, np.repeat(xs + dx, th)] = 255              # left border
-        mask[v_rows, np.repeat(xs + tw - ow + dx, th)] = 255    # right border
+        for cx in (xs + dx, xs + tw - ow + dx):
+            cols = np.repeat(cx, th)
+            ok = v_rows_in & (cols >= 0) & (cols < width)
+            mask[v_rows[ok], cols[ok]] = 255
 
     return mask
 
