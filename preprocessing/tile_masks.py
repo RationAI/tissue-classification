@@ -3,13 +3,53 @@ from tempfile import TemporaryDirectory
 
 import hydra
 import mlflow
+import numpy as np
 import pandas as pd
 import pyvips
 import ray
 from omegaconf import DictConfig
-from rationai.masks import process_items, tile_mask, write_big_tiff
+from rationai.masks import process_items, write_big_tiff
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
+
+
+def _draw_tile_outlines(
+    tiles: pd.DataFrame,
+    tile_extent: tuple[int, int],
+    size: tuple[int, int],
+    outline_width: int = 4,
+) -> np.ndarray:
+    tw, th = tile_extent
+    width, height = size
+    ow = outline_width
+    mask = np.zeros((height, width), dtype=np.uint8)
+
+    xs = tiles["x"].to_numpy()
+    ys = tiles["y"].to_numpy()
+
+    dc = np.arange(tw)
+    dr = np.arange(th)
+    dw = np.arange(ow)
+
+    # Horizontal borders (top and bottom)
+    h_rows_top = (ys[:, None, None] + dw[None, :, None]).ravel()
+    h_rows_bot = (ys[:, None, None] + (th - ow) + dw[None, :, None]).ravel()
+    h_cols = (xs[:, None, None] + dc[None, None, :]).ravel()
+    h_cols = np.tile(h_cols.reshape(len(xs), 1, tw), (1, ow, 1)).ravel()
+    mask[h_rows_top, h_cols] = 255
+    mask[h_rows_bot, h_cols] = 255
+
+    # Vertical borders (left and right)
+    v_rows = (ys[:, None, None] + dr[None, :, None]).ravel()
+    v_rows = np.tile(v_rows.reshape(len(xs), th, 1), (1, 1, ow)).ravel()
+    v_cols_left = (xs[:, None, None] + dw[None, None, :]).ravel()
+    v_cols_right = (xs[:, None, None] + (tw - ow) + dw[None, None, :]).ravel()
+    v_cols_left = np.tile(v_cols_left.reshape(len(xs), 1, ow), (1, th, 1)).ravel()
+    v_cols_right = np.tile(v_cols_right.reshape(len(xs), 1, ow), (1, th, 1)).ravel()
+    mask[v_rows, v_cols_left] = 255
+    mask[v_rows, v_cols_right] = 255
+
+    return mask
 
 
 @ray.remote(num_cpus=1, memory=3 * 1024**3)
@@ -20,19 +60,17 @@ def process_slide(
     slide, slide_tiles = item
     slide_path = Path(slide["path"])
 
-    mask = tile_mask(
+    mask = _draw_tile_outlines(
         slide_tiles,
         tile_extent=(slide["tile_extent_x"], slide["tile_extent_y"]),
         size=(slide["extent_x"], slide["extent_y"]),
     )
 
-    width, height = mask.size
-    mask_bytes = mask.tobytes()
-    del mask
+    height, width = mask.shape
 
     write_big_tiff(
         image=pyvips.Image.new_from_memory(
-            data=mask_bytes, width=width, height=height, bands=1, format="uchar"
+            data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
         ),
         path=Path(output_dir, slide_path.with_suffix(".tiff").name),
         mpp_x=slide["mpp_x"],
