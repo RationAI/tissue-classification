@@ -13,18 +13,6 @@ from rationai.mlkit.lightning.loggers import MLFlowLogger
 from sklearn.model_selection import StratifiedKFold
 
 
-ROI_CLASS_NAMES = [
-    "Nerve",
-    "Blood",
-    "Connective-Tissue",
-    "Fat",
-    "Epithelium",
-    "Muscle",
-    "Other",
-]
-ROI_COLS = [f"roi_coverage_{name}" for name in ROI_CLASS_NAMES]
-
-
 def derive_labels_streaming(
     parquet_path: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -34,13 +22,14 @@ def derive_labels_streaming(
     to avoid loading the entire DataFrame into memory at once.
     """
     pf = pq.ParquetFile(parquet_path)
+    roi_cols = [c for c in pf.schema_arrow.names if c.startswith("roi_coverage_")]
     labels = []
     tissue_props = []
     slide_ids = []
 
-    for batch in pf.iter_batches(columns=["slide_id", *ROI_COLS], batch_size=1_000_000):
+    for batch in pf.iter_batches(columns=["slide_id", *roi_cols], batch_size=1_000_000):
         batch_df = batch.to_pandas()
-        roi_values = batch_df[ROI_COLS]
+        roi_values = batch_df[roi_cols]
         tp = roi_values.sum(axis=1).values
         lbl = roi_values.idxmax(axis=1).str.removeprefix("roi_coverage_").values
         lbl[tp == 0] = "background"
