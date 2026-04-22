@@ -6,4 +6,4 @@ defaults:
 
 slides_artifact_path: train_split/slides.parquet
 tiles_artifact_path: train_split/tiles.parquet
-downsample: 4
+downsample: 8
