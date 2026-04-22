@@ -1,0 +1,26 @@
+# @package _global_
+
+mlflow_artifact_path: embeddings
+tiling_run_id: ???
+tile_size: 224
+
+dataloader:
+  batch_size: 2048  # 2048 for H100, 1024 for A40, 512 for mig-2g.20gb
+  num_workers: 8
+  persistent_workers: true
+
+metadata:
+  run_name: Virchow2 Embeddings ${dataset.name}
+  description: |
+    Embeddings preprocessing experiment config.
+    The embeddings pipeline:
+    * downloads slides/tiles parquet files from the tiling MLflow run
+    * initializes the Virchow2 tile encoder
+    * processes slides in batches through the encoder
+    * saves embeddings as parquet files with tile coordinates (one file per slide)
+    * logs artifacts to MLflow
+  hyperparams:
+    tiling_run_id: ${tiling_run_id}
+    tile_size: ${tile_size}
+    batch_size: ${dataloader.batch_size}
+    num_workers: ${dataloader.num_workers}
