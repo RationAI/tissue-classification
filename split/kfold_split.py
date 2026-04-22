@@ -5,43 +5,33 @@ import hydra
 import mlflow
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
+from datasets import Dataset, load_dataset
 from omegaconf import DictConfig
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from sklearn.model_selection import StratifiedKFold
 
 
-def derive_labels_streaming(
-    parquet_path: str,
+def derive_labels(
+    dataset: Dataset,
+    roi_cols: list[str],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Derive label, tissue_prop, and slide_id from a parquet file in a streaming fashion.
+    """Derive label, tissue_prop, and slide_id arrays from the dataset."""
 
-    Reads only the roi_coverage_* and slide_id columns, one row group at a time,
-    to avoid loading the entire DataFrame into memory at once.
-    """
-    pf = pq.ParquetFile(parquet_path)
-    roi_cols = [c for c in pf.schema_arrow.names if c.startswith("roi_coverage_")]
-    labels = []
-    tissue_props = []
-    slide_ids = []
-
-    for batch in pf.iter_batches(columns=["slide_id", *roi_cols], batch_size=1_000_000):
-        batch_df = batch.to_pandas()
-        roi_values = batch_df[roi_cols]
-        tp = roi_values.sum(axis=1).values
-        lbl = roi_values.idxmax(axis=1).str.removeprefix("roi_coverage_").values
+    def compute(batch):
+        roi_df = pd.DataFrame({col: batch[col] for col in roi_cols})
+        tp = roi_df.sum(axis=1).values
+        lbl = roi_df.idxmax(axis=1).str.removeprefix("roi_coverage_").values
         lbl[tp == 0] = "background"
+        return {"label": lbl.tolist(), "tissue_prop": tp.tolist()}
 
-        tissue_props.append(tp)
-        labels.append(lbl)
-        slide_ids.append(batch_df["slide_id"].values)
-
+    label_ds = dataset.select_columns(["slide_id", *roi_cols]).map(
+        compute, batched=True
+    )
     return (
-        np.concatenate(labels),
-        np.concatenate(tissue_props),
-        np.concatenate(slide_ids),
+        np.array(label_ds["label"]),
+        np.array(label_ds["tissue_prop"]),
+        np.array(label_ds["slide_id"]),
     )
 
 
@@ -116,7 +106,7 @@ def log_fold_statistics(
         print(
             f"Fold {fold}: {n_val} val tiles ({n_val / total * 100:.1f}%) "
             f"| {n_slides} slides "
-            f"| tissue_prop {tp_mean:.3f} \u00b1 {tp_std:.3f}"
+            f"| tissue_prop {tp_mean:.3f} ± {tp_std:.3f}"
         )
 
 
@@ -129,14 +119,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         artifact_path=config.dataset.mlflow_artifacts.train_tiles_filename,
     )
 
-    # Derive label and tissue_prop by streaming through row groups.
-    # Only roi_coverage_* and slide_id columns are read, one batch at a time,
-    # to keep memory usage low on the ~80M-row tiles parquet.
-    # roi_coverage_* measures the fraction of the central half-size ROI covered by each
-    # class, which is more representative of tile content than the full-tile coverage.
-    # tissue_prop: total annotated tissue fraction across all classes in the ROI.
-    # label: the dominant class in the ROI (highest coverage).
-    labels, tissue_props, slide_ids = derive_labels_streaming(parquet_path)
+    dataset = load_dataset("parquet", data_files=parquet_path, split="train")
+    roi_cols = [c for c in dataset.column_names if c.startswith("roi_coverage_")]
+
+    labels, tissue_props, slide_ids = derive_labels(dataset, roi_cols)
 
     labels = collapse_rare_labels(labels, n_folds=config.n_folds)
     folds = assign_folds(
@@ -145,31 +131,15 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
     log_fold_statistics(labels, tissue_props, slide_ids, folds, n_folds=config.n_folds)
 
-    # Write the output parquet with fold assignments by streaming through the
-    # original file and appending the computed columns, avoiding a full load.
-    pf = pq.ParquetFile(parquet_path)
-    offset = 0
+    dataset = dataset.add_column("label", labels.tolist())
+    dataset = dataset.add_column("tissue_prop", tissue_props.tolist())
+    dataset = dataset.add_column("fold", folds.tolist())
+
     with TemporaryDirectory() as output_dir:
-        out_path = Path(output_dir) / "kfold_tiles.parquet"
-        writer = None
-        for batch in pf.iter_batches(batch_size=1_000_000):
-            batch_df = batch.to_pandas()
-            n = len(batch_df)
-            batch_df["label"] = labels[offset : offset + n]
-            batch_df["tissue_prop"] = tissue_props[offset : offset + n]
-            batch_df["fold"] = folds[offset : offset + n]
-            offset += n
-
-            table = pa.Table.from_pandas(batch_df, preserve_index=False)
-            if writer is None:
-                writer = pq.ParquetWriter(str(out_path), table.schema)
-            writer.write_table(table)
-
-        if writer is not None:
-            writer.close()
-
+        out_path = str(Path(output_dir) / "kfold_tiles.parquet")
+        dataset.to_parquet(out_path)
         logger.log_artifacts(
-            local_dir=str(Path(output_dir)), artifact_path=config.mlflow_artifact_path
+            local_dir=output_dir, artifact_path=config.mlflow_artifact_path
         )
 
 
