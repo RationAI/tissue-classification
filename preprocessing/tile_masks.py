@@ -27,9 +27,8 @@ def _draw_tile_outlines(
     xs = tiles["x"].to_numpy()
     ys = tiles["y"].to_numpy()
 
-    # Precompute shared index spans — O(n × tile_size) each
-    h_cols = (xs[:, None] + np.arange(tw)[None, :]).ravel()  # (n × tw,)
-    v_rows = (ys[:, None] + np.arange(th)[None, :]).ravel()  # (n × th,)
+    h_cols = (xs[:, None] + np.arange(tw)[None, :]).ravel()
+    v_rows = (ys[:, None] + np.arange(th)[None, :]).ravel()
 
     h_cols_in = (h_cols >= 0) & (h_cols < width)
     v_rows_in = (v_rows >= 0) & (v_rows < height)
@@ -113,7 +112,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     }
 
     items = [
-        (slide.to_dict(), tiles_by_slide.get(slide["id"], pd.DataFrame(columns=["x", "y"])))
+        (
+            slide.to_dict(),
+            tiles_by_slide.get(slide["id"], pd.DataFrame(columns=["x", "y"])),
+        )
         for _, slide in slides.iterrows()
     ]
 
