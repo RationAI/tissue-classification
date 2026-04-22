@@ -3,5 +3,3 @@
 defaults:
   - /data: dataset
   - _self_
-
-tiling_run_id: "???"  # MLflow run ID of the tiling_05mpp run

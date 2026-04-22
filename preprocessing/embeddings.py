@@ -153,13 +153,13 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     for split_name in ["train", "test"]:
         slides_df = pd.read_parquet(
             mlflow.artifacts.download_artifacts(
-                run_id=config.tiling_run_id,
+                run_id=config.dataset.mlflow_artifacts.tiling_run_id,
                 artifact_path=f"{split_name}_split/slides.parquet",
             )
         )
         tiles_df = pd.read_parquet(
             mlflow.artifacts.download_artifacts(
-                run_id=config.tiling_run_id,
+                run_id=config.dataset.mlflow_artifacts.tiling_run_id,
                 artifact_path=f"{split_name}_split/tiles.parquet",
             )
         )
