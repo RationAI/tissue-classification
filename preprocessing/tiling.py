@@ -237,7 +237,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
         df_slides, df_tiles = tiling(
             df=split_df,
-            class_mapping=cast(dict[str, list[str]], OmegaConf.to_container(config.class_mapping, resolve=True)),
+            class_mapping=cast(
+                "dict[str, list[str]]",
+                OmegaConf.to_container(config.class_mapping, resolve=True),
+            ),
             tile_extent=config.tile_size,
             stride=config.stride,
             mpp=config.mpp,
