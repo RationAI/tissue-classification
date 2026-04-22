@@ -59,8 +59,13 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         )
     )
 
+    tiles_by_slide = {
+        slide_id: group[["x", "y"]]
+        for slide_id, group in tiles.groupby("slide_id")
+    }
+
     items = [
-        (slide.to_dict(), tiles[tiles["slide_id"] == slide["id"]][["x", "y"]])
+        (slide.to_dict(), tiles_by_slide.get(slide["id"], pd.DataFrame(columns=["x", "y"])))
         for _, slide in slides.iterrows()
     ]
 
