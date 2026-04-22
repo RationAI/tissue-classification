@@ -27,27 +27,17 @@ def _draw_tile_outlines(
     xs = tiles["x"].to_numpy()
     ys = tiles["y"].to_numpy()
 
-    dc = np.arange(tw)
-    dr = np.arange(th)
-    dw = np.arange(ow)
+    # Precompute shared index spans — O(n × tile_size) each
+    h_cols = (xs[:, None] + np.arange(tw)[None, :]).ravel()  # (n × tw,)
+    v_rows = (ys[:, None] + np.arange(th)[None, :]).ravel()  # (n × th,)
 
-    # Horizontal borders (top and bottom)
-    h_rows_top = (ys[:, None, None] + dw[None, :, None]).ravel()
-    h_rows_bot = (ys[:, None, None] + (th - ow) + dw[None, :, None]).ravel()
-    h_cols = (xs[:, None, None] + dc[None, None, :]).ravel()
-    h_cols = np.tile(h_cols.reshape(len(xs), 1, tw), (1, ow, 1)).ravel()
-    mask[h_rows_top, h_cols] = 255
-    mask[h_rows_bot, h_cols] = 255
+    for dy in range(ow):
+        mask[np.repeat(ys + dy, tw), h_cols] = 255              # top border
+        mask[np.repeat(ys + th - ow + dy, tw), h_cols] = 255    # bottom border
 
-    # Vertical borders (left and right)
-    v_rows = (ys[:, None, None] + dr[None, :, None]).ravel()
-    v_rows = np.tile(v_rows.reshape(len(xs), th, 1), (1, 1, ow)).ravel()
-    v_cols_left = (xs[:, None, None] + dw[None, None, :]).ravel()
-    v_cols_right = (xs[:, None, None] + (tw - ow) + dw[None, None, :]).ravel()
-    v_cols_left = np.tile(v_cols_left.reshape(len(xs), 1, ow), (1, th, 1)).ravel()
-    v_cols_right = np.tile(v_cols_right.reshape(len(xs), 1, ow), (1, th, 1)).ravel()
-    mask[v_rows, v_cols_left] = 255
-    mask[v_rows, v_cols_right] = 255
+    for dx in range(ow):
+        mask[v_rows, np.repeat(xs + dx, th)] = 255              # left border
+        mask[v_rows, np.repeat(xs + tw - ow + dx, th)] = 255    # right border
 
     return mask
 
