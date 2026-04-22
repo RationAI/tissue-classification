@@ -1,0 +1,13 @@
+# @package _global_
+
+n_folds: ???
+random_state: 42
+
+mlflow_artifact_path: kfold_split
+
+metadata:
+  run_name: K-Fold Split ${dataset.name}
+  description: 'Split train tiles into ${n_folds} stratified folds by tissue class label.'
+  hyperparams:
+    n_folds: ${n_folds}
+    random_state: ${random_state}
