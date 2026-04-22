@@ -2,10 +2,13 @@
 
 slides_artifact_path: ???
 tiles_artifact_path: ???
+downsample: 1
 
 max_concurrent: 8
 mlflow_artifact_path: tile_masks
 
 metadata:
   run_name: Tile Masks ${dataset.name}
-  description: "Tile mask generation"
+  description: "Tile mask generation (downsample ${downsample}x)"
+  hyperparams:
+    downsample: ${downsample}

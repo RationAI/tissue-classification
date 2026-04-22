@@ -53,14 +53,26 @@ def _draw_tile_outlines(
 def process_slide(
     item: tuple[dict, pd.DataFrame],
     output_dir: str,
+    downsample: int,
 ) -> None:
     slide, slide_tiles = item
     slide_path = Path(slide["path"])
 
+    scaled_tiles = slide_tiles.assign(
+        x=slide_tiles["x"] // downsample,
+        y=slide_tiles["y"] // downsample,
+    )
+
     mask = _draw_tile_outlines(
-        slide_tiles,
-        tile_extent=(slide["tile_extent_x"], slide["tile_extent_y"]),
-        size=(slide["extent_x"], slide["extent_y"]),
+        scaled_tiles,
+        tile_extent=(
+            slide["tile_extent_x"] // downsample,
+            slide["tile_extent_y"] // downsample,
+        ),
+        size=(
+            slide["extent_x"] // downsample,
+            slide["extent_y"] // downsample,
+        ),
     )
 
     height, width = mask.shape
@@ -70,8 +82,8 @@ def process_slide(
             data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
         ),
         path=Path(output_dir, slide_path.with_suffix(".tiff").name),
-        mpp_x=slide["mpp_x"],
-        mpp_y=slide["mpp_y"],
+        mpp_x=slide["mpp_x"] * downsample,
+        mpp_y=slide["mpp_y"] * downsample,
     )
 
 
@@ -109,7 +121,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         process_items(
             items,
             process_item=process_slide,
-            fn_kwargs={"output_dir": output_dir},
+            fn_kwargs={
+                "output_dir": output_dir,
+                "downsample": config.downsample,
+            },
             max_concurrent=config.max_concurrent,
         )
 
