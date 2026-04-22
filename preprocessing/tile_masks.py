@@ -56,11 +56,12 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         mlflow.artifacts.download_artifacts(
             run_id=tiling_run_id,
             artifact_path=config.tiles_artifact_path,
-        )
+        ),
+        columns=["slide_id", "x", "y"],
     )
 
     tiles_by_slide = {
-        slide_id: group[["x", "y"]]
+        slide_id: group.drop(columns="slide_id")
         for slide_id, group in tiles.groupby("slide_id")
     }
 
