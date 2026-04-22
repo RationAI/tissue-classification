@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - _self_
+
+slides_artifact_path: train_split/slides.parquet
+tiles_artifact_path: train_split/tiles.parquet

@@ -1,0 +1,11 @@
+# @package _global_
+
+slides_artifact_path: ???
+tiles_artifact_path: ???
+
+max_concurrent: 8
+mlflow_artifact_path: tile_masks
+
+metadata:
+  run_name: Tile Masks ${dataset.name}
+  description: "Tile mask generation"
