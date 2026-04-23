@@ -9,7 +9,7 @@ submit_job(
     gpu="A40",
     public=False,
     script=[
-        "git clone https://gitlab.ics.muni.cz/rationai/digital-pathology/pathology/tissue-classification.git workdir",
+        "git clone https://github.com/RationAI/tissue-classification.git workdir",
         "cd workdir",
         "export HF_TOKEN=<YOUR_HF_TOKEN>",
         "uv sync",
