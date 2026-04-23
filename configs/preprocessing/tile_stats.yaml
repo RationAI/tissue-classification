@@ -1,0 +1,13 @@
+# @package _global_
+
+tissue_mpp: ???
+
+mlflow_artifact_path: tile_stats
+
+metadata:
+  run_name: Tile Statistics
+  description: "Per-tile tissue coverage from tissue masks at ${tissue_mpp} MPP over tiling run ${dataset.mlflow_artifacts.tiling_run_id}."
+  hyperparams:
+    tiling_run_id: ${dataset.mlflow_artifacts.tiling_run_id}
+    tissue_masks_run_id: ${dataset.mlflow_artifacts.tissue_masks_run_id}
+    tissue_mpp: ${tissue_mpp}
