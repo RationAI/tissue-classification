@@ -32,7 +32,10 @@ def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> p
         run_id=run_id, artifact_path=artifact_path
     )
     dataset = load_dataset("parquet", data_files=local_path, split="train")
-    return dataset.select_columns(columns).to_pandas()
+    df = dataset.select_columns(columns).to_pandas()
+    if "slide_id" in df.columns:
+        df["slide_id"] = df["slide_id"].astype("category")
+    return df
 
 
 def sat_coverage(
