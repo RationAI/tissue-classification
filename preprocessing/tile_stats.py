@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import ray
 import tifffile
+from datasets import load_dataset
 from omegaconf import DictConfig
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
@@ -18,6 +19,20 @@ def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
         run_id=run_id, artifact_path=artifact_path
     )
     return pd.read_parquet(local_path)
+
+
+def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> pd.DataFrame:
+    """Lazy-load only the specified columns from a tiles parquet artifact.
+
+    The tiles parquet has one column per class for both tile and ROI coverage; reading the
+    full table for slides with millions of tiles would consume many GB of RAM. Projecting
+    to the columns we actually use keeps memory bounded and makes Ray serialization cheap.
+    """
+    local_path = mlflow.artifacts.download_artifacts(
+        run_id=run_id, artifact_path=artifact_path
+    )
+    dataset = load_dataset("parquet", data_files=local_path, split="train")
+    return dataset.select_columns(columns).to_pandas()
 
 
 def sat_coverage(
@@ -79,7 +94,7 @@ def compute_tissue_coverages(
     return tiles
 
 
-@ray.remote(num_cpus=1, memory=3 * 1024**3)
+@ray.remote(num_cpus=1, memory=1 * 1024**3)
 def process_slide(
     slide_tiles: pd.DataFrame,
     mask_path: str,
@@ -155,8 +170,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             slides = load_parquet_artifact(
                 tiling_run_id, f"{split_name}_split/slides.parquet"
             )
-            tiles = load_parquet_artifact(
-                tiling_run_id, f"{split_name}_split/tiles.parquet"
+            tiles = load_tiles_columns(
+                tiling_run_id,
+                f"{split_name}_split/tiles.parquet",
+                columns=["slide_id", "x", "y"],
             )
 
             tiles = add_tissue_coverage(slides, tiles, tissue_mask_dir, config.tissue_mpp)
