@@ -23,6 +23,7 @@ dependencies = [
     "numpy>=2.3.5",
     "rationai-tiling>=1.1.1",
     "tifffile>=2025.12.20",
+    "datasets>=4.0.0",
 ]
 
 [dependency-groups]
