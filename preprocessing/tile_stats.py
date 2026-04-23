@@ -6,6 +6,7 @@ import mlflow
 import mlflow.artifacts
 import numpy as np
 import pandas as pd
+import ray
 import tifffile
 from omegaconf import DictConfig
 from rationai.mlkit import autolog, with_cli_args
@@ -56,11 +57,10 @@ def compute_tissue_coverages(
     Uses a summed area table for O(1) per-tile rectangle queries.
     The ROI is the central half-size region of the tile (matching the roi_coverage_{class} convention).
     """
-    tissue = (mask > 0).astype(np.float64)
-    mask_h, mask_w = tissue.shape
+    mask_h, mask_w = mask.shape
 
-    sat = np.zeros((mask_h + 1, mask_w + 1), dtype=np.float64)
-    sat[1:, 1:] = np.cumsum(np.cumsum(tissue, axis=0), axis=1)
+    sat = np.zeros((mask_h + 1, mask_w + 1), dtype=np.int32)
+    sat[1:, 1:] = np.cumsum(np.cumsum(mask > 0, axis=0, dtype=np.int32), axis=1)
 
     scale = tile_mpp / tissue_mpp
     tm_extent = max(1, round(tile_extent * scale))
@@ -79,16 +79,30 @@ def compute_tissue_coverages(
     return tiles
 
 
+@ray.remote(num_cpus=1, memory=3 * 1024**3)
+def process_slide(
+    slide_tiles: pd.DataFrame,
+    mask_path: str,
+    tile_extent: int,
+    tile_mpp: float,
+    tissue_mpp: float,
+) -> pd.DataFrame:
+    mask = tifffile.imread(mask_path)
+    if mask.ndim > 2:
+        mask = mask[..., 0]
+    return compute_tissue_coverages(slide_tiles, mask, tile_mpp, tile_extent, tissue_mpp)
+
+
 def add_tissue_coverage(
     slides: pd.DataFrame,
     tiles: pd.DataFrame,
     tissue_mask_dir: Path,
     tissue_mpp: float,
 ) -> pd.DataFrame:
-    """Join tissue coverage into tiles by reading per-slide tissue mask TIFFs."""
+    """Dispatch per-slide tissue coverage computation as Ray tasks and collect results."""
     slide_info = slides.set_index("id")[["path", "tile_extent_x", "mpp_x"]]
 
-    result_parts = []
+    futures = []
     missing_slides = []
 
     for slide_id, slide_tiles in tiles.groupby("slide_id"):
@@ -106,24 +120,20 @@ def add_tissue_coverage(
             missing_slides.append(slide_id)
             continue
 
-        mask = tifffile.imread(str(mask_path))
-        if mask.ndim > 2:
-            mask = mask[..., 0]
-
-        result_parts.append(
-            compute_tissue_coverages(slide_tiles, mask, tile_mpp, tile_extent, tissue_mpp)
+        futures.append(
+            process_slide.remote(slide_tiles, str(mask_path), tile_extent, tile_mpp, tissue_mpp)
         )
 
     if missing_slides:
         print(f"Warning: {len(missing_slides)} slides had no matching tissue mask and were dropped")
 
-    if not result_parts:
+    if not futures:
         raise RuntimeError(
             f"No tissue masks matched any slide. Check tissue_masks_run_id and artifact path. "
             f"Missing slides: {len(missing_slides)}"
         )
 
-    return pd.concat(result_parts, ignore_index=True)
+    return pd.concat(ray.get(futures), ignore_index=True)
 
 
 @with_cli_args(["+preprocessing=tile_stats"])
@@ -167,4 +177,5 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with ray.init(runtime_env={"excludes": [".git", ".venv"]}):
+        main()
