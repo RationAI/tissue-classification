@@ -2,7 +2,7 @@
 
 slides_artifact_path: ???
 tiles_artifact_path: ???
-downsample: 1
+downsample: 8
 
 max_concurrent: 8
 mlflow_artifact_path: tile_masks
