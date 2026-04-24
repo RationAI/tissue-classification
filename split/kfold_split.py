@@ -29,7 +29,7 @@ def derive_labels(
         compute, batched=True
     )
     return (
-        np.array(label_ds["label"]),
+        np.array(label_ds["label"], dtype=object),
         np.array(label_ds["tissue_prop"]),
         np.array(label_ds["slide_id"]),
     )
