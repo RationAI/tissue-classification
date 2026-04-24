@@ -21,7 +21,7 @@ def _draw_tile_outlines(
 ) -> np.ndarray:
     tw, th = tile_extent
     width, height = size
-    ow = outline_width
+    ow = min(outline_width, tw // 2, th // 2)
     mask = np.zeros((height, width), dtype=np.uint8)
 
     xs = tiles["x"].to_numpy()
