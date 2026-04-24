@@ -6,9 +6,9 @@ import mlflow
 import mlflow.artifacts
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import ray
 import tifffile
-from datasets import load_dataset
 from omegaconf import DictConfig
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
@@ -26,13 +26,13 @@ def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> p
 
     The tiles parquet has one column per class for both tile and ROI coverage; reading the
     full table for slides with millions of tiles would consume many GB of RAM. Projecting
-    to the columns we actually use keeps memory bounded and makes Ray serialization cheap.
+    to the columns we actually use at the parquet level keeps memory bounded and avoids
+    reading column chunks we don't need.
     """
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
     )
-    dataset = load_dataset("parquet", data_files=local_path, split="train")
-    df = dataset.select_columns(columns).to_pandas()
+    df = pq.read_table(local_path, columns=columns).to_pandas()
     if "slide_id" in df.columns:
         df["slide_id"] = df["slide_id"].astype("category")
     return df
