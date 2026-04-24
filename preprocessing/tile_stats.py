@@ -6,9 +6,11 @@ import mlflow
 import mlflow.artifacts
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
+import pyarrow as pa
+import pyarrow.compute as pc
 import ray
 import tifffile
+from datasets import load_dataset
 from omegaconf import DictConfig
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
@@ -21,21 +23,19 @@ def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
     return pd.read_parquet(local_path)
 
 
-def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> pd.DataFrame:
-    """Lazy-load only the specified columns from a tiles parquet artifact.
+def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> pa.Table:
+    """Load the specified columns of a tiles parquet as a memory-mapped Arrow table.
 
-    The tiles parquet has one column per class for both tile and ROI coverage; reading the
-    full table for slides with millions of tiles would consume many GB of RAM. Projecting
-    to the columns we actually use at the parquet level keeps memory bounded and avoids
-    reading column chunks we don't need.
+    HF datasets caches the parquet into Arrow IPC on first load, after which the data
+    stays memory-mapped on disk. We return the underlying pyarrow Table without going
+    through pandas — materializing 80M rows into a DataFrame is the dominant cost, and
+    we only need to convert small per-slide slices before dispatching Ray tasks.
     """
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
     )
-    df = pq.read_table(local_path, columns=columns).to_pandas()
-    if "slide_id" in df.columns:
-        df["slide_id"] = df["slide_id"].astype("category")
-    return df
+    dataset = load_dataset("parquet", data_files=local_path, split="train")
+    return dataset.select_columns(columns).data.table
 
 
 def sat_coverage(
@@ -113,17 +113,27 @@ def process_slide(
 
 def add_tissue_coverage(
     slides: pd.DataFrame,
-    tiles: pd.DataFrame,
+    tiles: pa.Table,
     tissue_mask_dir: Path,
     tissue_mpp: float,
 ) -> pd.DataFrame:
     """Dispatch per-slide tissue coverage computation as Ray tasks and collect results."""
     slide_info = slides.set_index("id")[["path", "tile_extent_x", "mpp_x"]]
 
+    sort_indices = pc.sort_indices(tiles, sort_keys=[("slide_id", "ascending")])
+    tiles = tiles.take(sort_indices).combine_chunks()
+    slide_ids = tiles.column("slide_id").to_numpy(zero_copy_only=False)
+    change_points = np.where(slide_ids[1:] != slide_ids[:-1])[0] + 1
+    boundaries = np.concatenate([[0], change_points, [len(slide_ids)]])
+
     futures = []
     missing_slides = []
 
-    for slide_id, slide_tiles in tiles.groupby("slide_id"):
+    for i in range(len(boundaries) - 1):
+        start = int(boundaries[i])
+        end = int(boundaries[i + 1])
+        slide_id = slide_ids[start]
+
         if slide_id not in slide_info.index:
             missing_slides.append(slide_id)
             continue
@@ -138,6 +148,7 @@ def add_tissue_coverage(
             missing_slides.append(slide_id)
             continue
 
+        slide_tiles = tiles.slice(start, end - start).to_pandas()
         futures.append(
             process_slide.remote(slide_tiles, str(mask_path), tile_extent, tile_mpp, tissue_mpp)
         )
