@@ -55,7 +55,6 @@ def process_slide(
     downsample: int,
 ) -> None:
     slide, slide_tiles = item
-    slide_path = Path(slide["path"])
 
     scaled_tiles = slide_tiles.assign(
         x=slide_tiles["x"] // downsample,
@@ -80,7 +79,7 @@ def process_slide(
         image=pyvips.Image.new_from_memory(
             data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
         ),
-        path=Path(output_dir, slide_path.with_suffix(".tiff").name),
+        path=Path(output_dir, f"{slide['id']}.tiff"),
         mpp_x=slide["mpp_x"] * downsample,
         mpp_y=slide["mpp_y"] * downsample,
     )
