@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import ray
 import tifffile
 from datasets import load_dataset
@@ -111,20 +112,48 @@ def process_slide(
     return compute_tissue_coverages(slide_tiles, mask, tile_mpp, tile_extent, tissue_mpp)
 
 
+def _slide_id_runs(tiles: pa.Table) -> tuple[np.ndarray, pa.Array]:
+    """Return (boundaries, dictionary) for contiguous slide_id runs in `tiles`.
+
+    Dictionary-encodes slide_id to compare int indices instead of strings — avoids the
+    int32 offset overflow that hits string columns with cumulative length > 2 GiB, and
+    is cheaper than materializing 80M Python strings in a numpy object array.
+    """
+    encoded = pc.dictionary_encode(tiles.column("slide_id"))
+    if isinstance(encoded, pa.ChunkedArray):
+        encoded = encoded.unify_dictionaries().combine_chunks()
+    indices = encoded.indices.to_numpy(zero_copy_only=False)
+    change_points = np.where(indices[1:] != indices[:-1])[0] + 1
+    boundaries = np.concatenate([[0], change_points, [len(indices)]])
+
+    n_unique = pc.count_distinct(tiles.column("slide_id")).as_py()
+    if len(boundaries) - 1 != n_unique:
+        raise RuntimeError(
+            f"Tiles parquet is not grouped by slide_id "
+            f"({len(boundaries) - 1} runs vs {n_unique} unique ids). "
+            f"The tile_stats pipeline assumes tiling.py emits one slide's tiles contiguously."
+        )
+    return boundaries, encoded
+
+
 def add_tissue_coverage(
     slides: pd.DataFrame,
     tiles: pa.Table,
     tissue_mask_dir: Path,
     tissue_mpp: float,
-) -> pd.DataFrame:
-    """Dispatch per-slide tissue coverage computation as Ray tasks and collect results."""
+    output_path: Path,
+) -> dict[str, float]:
+    """Dispatch per-slide tissue coverage computation as Ray tasks.
+
+    Writes per-slide results to `output_path` via a streaming ParquetWriter as each Ray
+    task finishes, so the driver never holds more than one slide's DataFrame at a time.
+    Returns the aggregate stats (total count, mean coverages) for metric logging.
+    """
     slide_info = slides.set_index("id")[["path", "tile_extent_x", "mpp_x"]]
 
-    sort_indices = pc.sort_indices(tiles, sort_keys=[("slide_id", "ascending")])
-    tiles = tiles.take(sort_indices).combine_chunks()
-    slide_ids = tiles.column("slide_id").to_numpy(zero_copy_only=False)
-    change_points = np.where(slide_ids[1:] != slide_ids[:-1])[0] + 1
-    boundaries = np.concatenate([[0], change_points, [len(slide_ids)]])
+    boundaries, encoded = _slide_id_runs(tiles)
+    indices = encoded.indices.to_numpy(zero_copy_only=False)
+    dictionary = encoded.dictionary
 
     futures = []
     missing_slides = []
@@ -132,7 +161,7 @@ def add_tissue_coverage(
     for i in range(len(boundaries) - 1):
         start = int(boundaries[i])
         end = int(boundaries[i + 1])
-        slide_id = slide_ids[start]
+        slide_id = dictionary[indices[start]].as_py()
 
         if slide_id not in slide_info.index:
             missing_slides.append(slide_id)
@@ -162,7 +191,36 @@ def add_tissue_coverage(
             f"Missing slides: {len(missing_slides)}"
         )
 
-    return pd.concat(ray.get(futures), ignore_index=True)
+    writer: pq.ParquetWriter | None = None
+    schema: pa.Schema | None = None
+    count = 0
+    tile_cov_sum = 0.0
+    roi_cov_sum = 0.0
+
+    pending = list(futures)
+    try:
+        while pending:
+            done, pending = ray.wait(pending, num_returns=1)
+            result = ray.get(done[0])
+            if schema is None:
+                table = pa.Table.from_pandas(result, preserve_index=False)
+                schema = table.schema
+                writer = pq.ParquetWriter(str(output_path), schema)
+            else:
+                table = pa.Table.from_pandas(result, preserve_index=False, schema=schema)
+            writer.write_table(table)
+            count += len(result)
+            tile_cov_sum += float(result["tile_tissue_coverage"].sum())
+            roi_cov_sum += float(result["roi_tissue_coverage"].sum())
+    finally:
+        if writer is not None:
+            writer.close()
+
+    return {
+        "tile_count": count,
+        "mean_tile_tissue_coverage": tile_cov_sum / count,
+        "mean_roi_tissue_coverage": roi_cov_sum / count,
+    }
 
 
 @with_cli_args(["+preprocessing=tile_stats"])
@@ -190,18 +248,19 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 columns=["slide_id", "x", "y"],
             )
 
-            tiles = add_tissue_coverage(slides, tiles, tissue_mask_dir, config.tissue_mpp)
+            output_path = Path(tmp_dir) / f"{split_name}_tiles.parquet"
+            stats = add_tissue_coverage(
+                slides, tiles, tissue_mask_dir, config.tissue_mpp, output_path
+            )
 
-            tiles.to_parquet(Path(tmp_dir) / f"{split_name}_tiles.parquet", index=False)
-
-            mlflow.log_metric(f"{split_name}_tile_count", len(tiles))
+            mlflow.log_metric(f"{split_name}_tile_count", stats["tile_count"])
             mlflow.log_metric(
                 f"{split_name}_mean_tile_tissue_coverage",
-                float(tiles["tile_tissue_coverage"].mean()),
+                stats["mean_tile_tissue_coverage"],
             )
             mlflow.log_metric(
                 f"{split_name}_mean_roi_tissue_coverage",
-                float(tiles["roi_tissue_coverage"].mean()),
+                stats["mean_roi_tissue_coverage"],
             )
 
         mlflow.log_artifacts(tmp_dir, config.mlflow_artifact_path)
