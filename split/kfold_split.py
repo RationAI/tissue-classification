@@ -121,6 +121,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
     dataset = load_dataset("parquet", data_files=parquet_path, split="train")
     roi_cols = [c for c in dataset.column_names if c.startswith("roi_coverage_")]
+    if not roi_cols:
+        raise ValueError("No roi_coverage_* columns found in the dataset.")
 
     labels, tissue_props, slide_ids = derive_labels(dataset, roi_cols)
 
