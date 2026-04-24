@@ -112,30 +112,6 @@ def process_slide(
     return compute_tissue_coverages(slide_tiles, mask, tile_mpp, tile_extent, tissue_mpp)
 
 
-def _slide_id_runs(tiles: pa.Table) -> tuple[np.ndarray, pa.Array]:
-    """Return (boundaries, dictionary) for contiguous slide_id runs in `tiles`.
-
-    Dictionary-encodes slide_id to compare int indices instead of strings — avoids the
-    int32 offset overflow that hits string columns with cumulative length > 2 GiB, and
-    is cheaper than materializing 80M Python strings in a numpy object array.
-    """
-    encoded = pc.dictionary_encode(tiles.column("slide_id"))
-    if isinstance(encoded, pa.ChunkedArray):
-        encoded = encoded.unify_dictionaries().combine_chunks()
-    indices = encoded.indices.to_numpy(zero_copy_only=False)
-    change_points = np.where(indices[1:] != indices[:-1])[0] + 1
-    boundaries = np.concatenate([[0], change_points, [len(indices)]])
-
-    n_unique = pc.count_distinct(tiles.column("slide_id")).as_py()
-    if len(boundaries) - 1 != n_unique:
-        raise RuntimeError(
-            f"Tiles parquet is not grouped by slide_id "
-            f"({len(boundaries) - 1} runs vs {n_unique} unique ids). "
-            f"The tile_stats pipeline assumes tiling.py emits one slide's tiles contiguously."
-        )
-    return boundaries, encoded
-
-
 def add_tissue_coverage(
     slides: pd.DataFrame,
     tiles: pa.Table,
@@ -148,12 +124,24 @@ def add_tissue_coverage(
     Writes per-slide results to `output_path` via a streaming ParquetWriter as each Ray
     task finishes, so the driver never holds more than one slide's DataFrame at a time.
     Returns the aggregate stats (total count, mean coverages) for metric logging.
+
+    Tiling emits slides interleaved across Ray Data blocks, so we dictionary-encode
+    slide_id and argsort the int indices to group row positions per slide. Avoids the
+    pyarrow int32-offset overflow that a full string-column sort/take would hit on
+    ~80M rows, while keeping per-slide takes small enough to stay under the limit.
     """
     slide_info = slides.set_index("id")[["path", "tile_extent_x", "mpp_x"]]
 
-    boundaries, encoded = _slide_id_runs(tiles)
+    encoded = pc.dictionary_encode(tiles.column("slide_id"))
+    if isinstance(encoded, pa.ChunkedArray):
+        encoded = encoded.unify_dictionaries().combine_chunks()
     indices = encoded.indices.to_numpy(zero_copy_only=False)
     dictionary = encoded.dictionary
+
+    sort_order = np.argsort(indices, kind="stable")
+    sorted_indices = indices[sort_order]
+    change_points = np.where(sorted_indices[1:] != sorted_indices[:-1])[0] + 1
+    boundaries = np.concatenate([[0], change_points, [len(sorted_indices)]])
 
     futures = []
     missing_slides = []
@@ -161,7 +149,7 @@ def add_tissue_coverage(
     for i in range(len(boundaries) - 1):
         start = int(boundaries[i])
         end = int(boundaries[i + 1])
-        slide_id = dictionary[indices[start]].as_py()
+        slide_id = dictionary[int(sorted_indices[start])].as_py()
 
         if slide_id not in slide_info.index:
             missing_slides.append(slide_id)
@@ -177,7 +165,8 @@ def add_tissue_coverage(
             missing_slides.append(slide_id)
             continue
 
-        slide_tiles = tiles.slice(start, end - start).to_pandas()
+        row_positions = pa.array(sort_order[start:end])
+        slide_tiles = tiles.take(row_positions).to_pandas()
         futures.append(
             process_slide.remote(slide_tiles, str(mask_path), tile_extent, tile_mpp, tissue_mpp)
         )
