@@ -1,5 +1,6 @@
 # @package _global_
 
+# Pairs with the 0.5 MPP tiling run; tissue masks are sampled at a coarser MPP set below
 defaults:
   - /data: dataset
   - _self_

@@ -46,21 +46,18 @@ def sat_coverage(
     x0: np.ndarray,
     extent: int,
 ) -> np.ndarray:
-    """Compute mean foreground fraction over [y0:y0+extent, x0:x0+extent] rectangles using a SAT.
+    """Compute foreground fraction over [y0:y0+extent, x0:x0+extent] rectangles using a SAT.
 
-    Rectangles that partially fall outside the mask are cropped; rectangles fully outside return 0.
+    Coverage is normalized by the full rectangle area, so tiles partially outside the
+    mask are penalized in proportion to how much of them sits outside.
     """
-    y1 = y0 + extent
-    x1 = x0 + extent
-
     cy0 = np.clip(y0, 0, mask_h)
     cx0 = np.clip(x0, 0, mask_w)
-    cy1 = np.clip(y1, 0, mask_h)
-    cx1 = np.clip(x1, 0, mask_w)
+    cy1 = np.clip(y0 + extent, 0, mask_h)
+    cx1 = np.clip(x0 + extent, 0, mask_w)
 
-    areas = (cy1 - cy0) * (cx1 - cx0)
     sums = sat[cy1, cx1] - sat[cy0, cx1] - sat[cy1, cx0] + sat[cy0, cx0]
-    return np.where(areas > 0, sums / areas, 0.0)
+    return sums / (extent * extent)
 
 
 def compute_tissue_coverages(
