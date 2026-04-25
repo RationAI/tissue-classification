@@ -18,7 +18,7 @@ def derive_labels(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Derive label, tissue_prop, and slide_id arrays from the dataset."""
 
-    def compute(batch):
+    def compute(batch: dict) -> dict:
         roi_df = pd.DataFrame({col: batch[col] for col in roi_cols})
         tp = roi_df.sum(axis=1).values
         lbl = roi_df.idxmax(axis=1).str.removeprefix("roi_coverage_").values
