@@ -132,7 +132,7 @@ def compute_tissue_coverages(
     return tiles
 
 
-@ray.remote(num_cpus=2, max_calls=1)
+@ray.remote(num_cpus=1, max_calls=1)
 def process_slide(
     slide_tiles: pd.DataFrame,
     mask_path: str,
@@ -212,9 +212,12 @@ def add_tissue_coverage(
     )
 
     t_xy = time.perf_counter()
-    x_all = pc.cast(tiles.column("x"), pa.int64()).combine_chunks().to_numpy(zero_copy_only=False)
-    y_all = pc.cast(tiles.column("y"), pa.int64()).combine_chunks().to_numpy(zero_copy_only=False)
-    _log(f"  x/y to numpy done in {time.perf_counter() - t_xy:.1f}s")
+    x_all = tiles.column("x").combine_chunks().to_numpy(zero_copy_only=False)
+    y_all = tiles.column("y").combine_chunks().to_numpy(zero_copy_only=False)
+    _log(
+        f"  x/y to numpy done in {time.perf_counter() - t_xy:.1f}s "
+        f"x_dtype={x_all.dtype} bytes={(x_all.nbytes + y_all.nbytes) / 1e6:.0f}MB"
+    )
 
     t3 = time.perf_counter()
     futures = []
@@ -369,5 +372,5 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
 
 if __name__ == "__main__":
-    with ray.init():
+    with ray.init(num_cpus=4):
         main()
