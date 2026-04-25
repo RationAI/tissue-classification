@@ -95,11 +95,19 @@ def compute_tissue_coverages(
     Uses a summed area table for O(1) per-tile rectangle queries.
     The ROI is the central half-size region of the tile (matching the roi_coverage_{class} convention).
     """
+    import os
     mask_h, mask_w = mask.shape
+    t0 = time.perf_counter()
 
     sat = np.zeros((mask_h + 1, mask_w + 1), dtype=np.int32)
     sat[1:, 1:] = np.cumsum(np.cumsum(mask > 0, axis=0, dtype=np.int32), axis=1)
+    print(
+        f"[compute pid={os.getpid()}] SAT built in {time.perf_counter() - t0:.1f}s "
+        f"mask={mask.shape} sat_bytes={sat.nbytes / 1e6:.1f}MB",
+        flush=True,
+    )
 
+    t1 = time.perf_counter()
     scale = tile_mpp / tissue_mpp
     tm_extent = max(1, round(tile_extent * scale))
     roi_offset = tm_extent // 4
@@ -110,6 +118,11 @@ def compute_tissue_coverages(
 
     tile_cov = sat_coverage(sat, mask_h, mask_w, ys, xs, tm_extent)
     roi_cov = sat_coverage(sat, mask_h, mask_w, ys + roi_offset, xs + roi_offset, roi_extent)
+    print(
+        f"[compute pid={os.getpid()}] coverage done in {time.perf_counter() - t1:.1f}s "
+        f"tiles={len(tiles):,} tm_extent={tm_extent}",
+        flush=True,
+    )
 
     tiles = tiles.copy()
     tiles["tile_tissue_coverage"] = tile_cov
@@ -117,7 +130,7 @@ def compute_tissue_coverages(
     return tiles
 
 
-@ray.remote(num_cpus=1)
+@ray.remote(num_cpus=4)
 def process_slide(
     slide_tiles: pd.DataFrame,
     mask_path: str,
