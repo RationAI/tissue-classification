@@ -125,10 +125,30 @@ def process_slide(
     tile_mpp: float,
     tissue_mpp: float,
 ) -> pd.DataFrame:
+    import os
+    t0 = time.perf_counter()
+    print(
+        f"[worker pid={os.getpid()}] start mask={Path(mask_path).name} "
+        f"tiles={len(slide_tiles):,}",
+        flush=True,
+    )
     mask = tifffile.imread(mask_path)
+    t_read = time.perf_counter() - t0
     if mask.ndim > 2:
         mask = mask[..., 0]
-    return compute_tissue_coverages(slide_tiles, mask, tile_mpp, tile_extent, tissue_mpp)
+    print(
+        f"[worker pid={os.getpid()}] mask loaded in {t_read:.1f}s "
+        f"shape={mask.shape} dtype={mask.dtype}",
+        flush=True,
+    )
+    t1 = time.perf_counter()
+    out = compute_tissue_coverages(slide_tiles, mask, tile_mpp, tile_extent, tissue_mpp)
+    print(
+        f"[worker pid={os.getpid()}] done mask={Path(mask_path).name} "
+        f"compute={time.perf_counter() - t1:.1f}s total={time.perf_counter() - t0:.1f}s",
+        flush=True,
+    )
+    return out
 
 
 def add_tissue_coverage(
@@ -249,11 +269,10 @@ def add_tissue_coverage(
             tile_cov_sum += float(result["tile_tissue_coverage"].sum())
             roi_cov_sum += float(result["roi_tissue_coverage"].sum())
             done_count += 1
-            if done_count % 10 == 0 or done_count == total:
-                _log(
-                    f"  ray progress {done_count}/{total} "
-                    f"({time.perf_counter() - t4:.1f}s elapsed, {count:,} tiles written)"
-                )
+            _log(
+                f"  ray progress {done_count}/{total} "
+                f"({time.perf_counter() - t4:.1f}s elapsed, {count:,} tiles written)"
+            )
     finally:
         if writer is not None:
             writer.close()
