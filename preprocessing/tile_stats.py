@@ -130,7 +130,7 @@ def compute_tissue_coverages(
     return tiles
 
 
-@ray.remote(num_cpus=4)
+@ray.remote(num_cpus=16)
 def process_slide(
     slide_tiles: pd.DataFrame,
     mask_path: str,
