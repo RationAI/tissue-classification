@@ -176,6 +176,11 @@ def add_tissue_coverage(
         f"groups={len(boundaries) - 1}"
     )
 
+    t_xy = time.perf_counter()
+    x_all = pc.cast(tiles.column("x"), pa.int64()).combine_chunks().to_numpy(zero_copy_only=False)
+    y_all = pc.cast(tiles.column("y"), pa.int64()).combine_chunks().to_numpy(zero_copy_only=False)
+    _log(f"  x/y to numpy done in {time.perf_counter() - t_xy:.1f}s")
+
     t3 = time.perf_counter()
     futures = []
     missing_slides = []
@@ -199,8 +204,8 @@ def add_tissue_coverage(
             missing_slides.append(slide_id)
             continue
 
-        row_positions = pa.array(sort_order[start:end])
-        slide_tiles = tiles.take(row_positions).to_pandas()
+        positions = sort_order[start:end]
+        slide_tiles = pd.DataFrame({"x": x_all[positions], "y": y_all[positions]})
         futures.append(
             process_slide.remote(slide_tiles, str(mask_path), tile_extent, tile_mpp, tissue_mpp)
         )
