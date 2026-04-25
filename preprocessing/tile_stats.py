@@ -254,9 +254,17 @@ def add_tissue_coverage(
     total = len(futures)
     done_count = 0
     pending = list(futures)
+    _log(f"  ray cluster_resources={ray.cluster_resources()}")
+    _log(f"  ray available_resources={ray.available_resources()}")
     try:
         while pending:
-            done, pending = ray.wait(pending, num_returns=1)
+            done, pending = ray.wait(pending, num_returns=1, timeout=15.0)
+            if not done:
+                _log(
+                    f"  ray.wait 15s timeout: pending={len(pending)} "
+                    f"available_resources={ray.available_resources()}"
+                )
+                continue
             result = ray.get(done[0])
             if schema is None:
                 table = pa.Table.from_pandas(result, preserve_index=False)
