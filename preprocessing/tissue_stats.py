@@ -232,7 +232,7 @@ def add_tissue_coverage(
     }
 
 
-@with_cli_args(["+preprocessing=tile_stats"])
+@with_cli_args(["+preprocessing=tissue_stats"])
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
