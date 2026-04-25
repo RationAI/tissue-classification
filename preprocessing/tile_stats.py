@@ -1,4 +1,5 @@
 import tempfile
+import time
 from pathlib import Path
 
 import hydra
@@ -17,6 +18,10 @@ from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 
 
+def _log(msg: str) -> None:
+    print(f"[tile_stats {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
 def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
@@ -32,11 +37,25 @@ def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> p
     through pandas — materializing 80M rows into a DataFrame is the dominant cost, and
     we only need to convert small per-slide slices before dispatching Ray tasks.
     """
+    t0 = time.perf_counter()
+    _log(f"downloading tiles artifact {artifact_path}...")
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
     )
+    _log(f"  download done in {time.perf_counter() - t0:.1f}s -> {local_path}")
+
+    t1 = time.perf_counter()
+    _log("calling load_dataset (HF cache build if first run)...")
     dataset = load_dataset("parquet", data_files=local_path, split="train")
-    return dataset.select_columns(columns).data.table
+    _log(f"  load_dataset done in {time.perf_counter() - t1:.1f}s, num_rows={dataset.num_rows}")
+
+    t2 = time.perf_counter()
+    table = dataset.select_columns(columns).data.table
+    _log(
+        f"  select_columns done in {time.perf_counter() - t2:.1f}s, "
+        f"chunks={[table.column(c).num_chunks for c in columns]}"
+    )
+    return table
 
 
 def sat_coverage(
@@ -131,18 +150,33 @@ def add_tissue_coverage(
     ~80M rows, while keeping per-slide takes small enough to stay under the limit.
     """
     slide_info = slides.set_index("id")[["path", "tile_extent_x", "mpp_x"]]
+    _log(f"add_tissue_coverage: {len(tiles):,} tiles, {len(slide_info)} slides in catalog")
 
+    t0 = time.perf_counter()
     encoded = pc.dictionary_encode(tiles.column("slide_id"))
+    _log(f"  dictionary_encode done in {time.perf_counter() - t0:.1f}s")
+
+    t1 = time.perf_counter()
     if isinstance(encoded, pa.ChunkedArray):
         encoded = encoded.unify_dictionaries().combine_chunks()
     indices = encoded.indices.to_numpy(zero_copy_only=False)
     dictionary = encoded.dictionary
+    _log(
+        f"  unify+to_numpy done in {time.perf_counter() - t1:.1f}s, "
+        f"unique_slides_in_tiles={len(dictionary)}"
+    )
 
+    t2 = time.perf_counter()
     sort_order = np.argsort(indices, kind="stable")
     sorted_indices = indices[sort_order]
     change_points = np.where(sorted_indices[1:] != sorted_indices[:-1])[0] + 1
     boundaries = np.concatenate([[0], change_points, [len(sorted_indices)]])
+    _log(
+        f"  argsort+boundaries done in {time.perf_counter() - t2:.1f}s, "
+        f"groups={len(boundaries) - 1}"
+    )
 
+    t3 = time.perf_counter()
     futures = []
     missing_slides = []
 
@@ -171,6 +205,11 @@ def add_tissue_coverage(
             process_slide.remote(slide_tiles, str(mask_path), tile_extent, tile_mpp, tissue_mpp)
         )
 
+    _log(
+        f"  dispatch loop done in {time.perf_counter() - t3:.1f}s, "
+        f"futures={len(futures)}, missing={len(missing_slides)}"
+    )
+
     if missing_slides:
         print(f"Warning: {len(missing_slides)} slides had no matching tissue mask and were dropped")
 
@@ -186,6 +225,9 @@ def add_tissue_coverage(
     tile_cov_sum = 0.0
     roi_cov_sum = 0.0
 
+    t4 = time.perf_counter()
+    total = len(futures)
+    done_count = 0
     pending = list(futures)
     try:
         while pending:
@@ -201,9 +243,16 @@ def add_tissue_coverage(
             count += len(result)
             tile_cov_sum += float(result["tile_tissue_coverage"].sum())
             roi_cov_sum += float(result["roi_tissue_coverage"].sum())
+            done_count += 1
+            if done_count % 10 == 0 or done_count == total:
+                _log(
+                    f"  ray progress {done_count}/{total} "
+                    f"({time.perf_counter() - t4:.1f}s elapsed, {count:,} tiles written)"
+                )
     finally:
         if writer is not None:
             writer.close()
+    _log(f"  ray loop done in {time.perf_counter() - t4:.1f}s")
 
     return {
         "tile_count": count,
@@ -219,18 +268,24 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     tiling_run_id = config.dataset.mlflow_artifacts.tiling_run_id
     tissue_masks_run_id = config.dataset.mlflow_artifacts.tissue_masks_run_id
 
+    t0 = time.perf_counter()
+    _log(f"downloading tissue_masks artifact from run {tissue_masks_run_id}...")
     tissue_mask_dir = Path(
         mlflow.artifacts.download_artifacts(
             run_id=tissue_masks_run_id,
             artifact_path="tissue_masks",
         )
     )
+    _log(f"  tissue_masks download done in {time.perf_counter() - t0:.1f}s -> {tissue_mask_dir}")
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         for split_name in ("train", "test"):
+            split_t = time.perf_counter()
+            _log(f"=== split={split_name} ===")
             slides = load_parquet_artifact(
                 tiling_run_id, f"{split_name}_split/slides.parquet"
             )
+            _log(f"loaded slides parquet, rows={len(slides)}")
             tiles = load_tiles_columns(
                 tiling_run_id,
                 f"{split_name}_split/tiles.parquet",
@@ -241,6 +296,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             stats = add_tissue_coverage(
                 slides, tiles, tissue_mask_dir, config.tissue_mpp, output_path
             )
+            _log(f"split={split_name} total={time.perf_counter() - split_t:.1f}s")
 
             mlflow.log_metric(f"{split_name}_tile_count", stats["tile_count"])
             mlflow.log_metric(
