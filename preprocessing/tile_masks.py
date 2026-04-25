@@ -50,7 +50,7 @@ def _draw_tile_outlines(
 
 @ray.remote(num_cpus=1, memory=3 * 1024**3)
 def process_slide(
-    item: tuple[dict, pd.DataFrame],
+    item: tuple[dict[str, object], pd.DataFrame],
     output_dir: str,
     downsample: int,
 ) -> None:
