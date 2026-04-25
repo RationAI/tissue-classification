@@ -100,7 +100,9 @@ def compute_tissue_coverages(
     t0 = time.perf_counter()
 
     sat = np.zeros((mask_h + 1, mask_w + 1), dtype=np.int32)
-    sat[1:, 1:] = np.cumsum(np.cumsum(mask > 0, axis=0, dtype=np.int32), axis=1)
+    sat[1:, 1:] = mask > 0
+    np.cumsum(sat, axis=0, out=sat)
+    np.cumsum(sat, axis=1, out=sat)
     print(
         f"[compute pid={os.getpid()}] SAT built in {time.perf_counter() - t0:.1f}s "
         f"mask={mask.shape} sat_bytes={sat.nbytes / 1e6:.1f}MB",
@@ -130,7 +132,7 @@ def compute_tissue_coverages(
     return tiles
 
 
-@ray.remote(num_cpus=16)
+@ray.remote(num_cpus=2, max_calls=1)
 def process_slide(
     slide_tiles: pd.DataFrame,
     mask_path: str,
