@@ -117,7 +117,7 @@ def compute_tissue_coverages(
     return tiles
 
 
-@ray.remote(num_cpus=1, memory=1 * 1024**3)
+@ray.remote(num_cpus=1)
 def process_slide(
     slide_tiles: pd.DataFrame,
     mask_path: str,
@@ -265,21 +265,31 @@ def add_tissue_coverage(
                     f"available_resources={ray.available_resources()}"
                 )
                 continue
+            t_get = time.perf_counter()
             result = ray.get(done[0])
+            _log(
+                f"  task done: ray.get={time.perf_counter() - t_get:.2f}s "
+                f"rows={len(result)}"
+            )
+            t_pa = time.perf_counter()
             if schema is None:
                 table = pa.Table.from_pandas(result, preserve_index=False)
                 schema = table.schema
                 writer = pq.ParquetWriter(str(output_path), schema)
             else:
                 table = pa.Table.from_pandas(result, preserve_index=False, schema=schema)
+            t_write = time.perf_counter()
             writer.write_table(table)
+            t_sum = time.perf_counter()
             count += len(result)
             tile_cov_sum += float(result["tile_tissue_coverage"].sum())
             roi_cov_sum += float(result["roi_tissue_coverage"].sum())
             done_count += 1
             _log(
                 f"  ray progress {done_count}/{total} "
-                f"({time.perf_counter() - t4:.1f}s elapsed, {count:,} tiles written)"
+                f"(arrow={t_write - t_pa:.2f}s write={t_sum - t_write:.2f}s "
+                f"sum={time.perf_counter() - t_sum:.2f}s, "
+                f"{time.perf_counter() - t4:.1f}s elapsed, {count:,} tiles written)"
             )
     finally:
         if writer is not None:
@@ -344,5 +354,5 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
 
 if __name__ == "__main__":
-    with ray.init(runtime_env={"excludes": [".git", ".venv"]}):
+    with ray.init():
         main()
