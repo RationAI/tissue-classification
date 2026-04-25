@@ -76,9 +76,6 @@ def compute_tissue_coverages(
     The ROI is the central half-size region of the tile (matching the roi_coverage_{class} convention).
     """
     mask_h, mask_w = mask.shape
-
-    # Build SAT in-place: a chained `np.cumsum(np.cumsum(...))` triples peak memory
-    # because both intermediates stay alive — for big WSI masks that's enough to OOM.
     sat = np.zeros((mask_h + 1, mask_w + 1), dtype=np.int32)
     sat[1:, 1:] = mask > 0
     np.cumsum(sat, axis=0, out=sat)
@@ -279,8 +276,5 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
 
 if __name__ == "__main__":
-    # Pin Ray's CPU count to the pod's allocation. Without this, Ray auto-detects
-    # the host node (128 cores) and would over-schedule into the 8-core pod, causing
-    # memory-bandwidth contention and OOM kills as multi-GB SATs pile up.
     with ray.init(num_cpus=4):
         main()
