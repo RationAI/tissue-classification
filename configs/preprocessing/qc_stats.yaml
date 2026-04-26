@@ -1,0 +1,12 @@
+# @package _global_
+
+qc_masks_path: ???
+qc_mpp: ???
+
+mlflow_artifact_path: qc_stats
+
+metadata:
+  run_name: QC Statistics ${dataset.name}
+  description: "Per-tile QC artifact coverage (blur, folding, residual)"
+  hyperparams:
+    qc_mpp: ${qc_mpp}
