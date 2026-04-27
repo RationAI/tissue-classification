@@ -104,10 +104,38 @@ def join_inputs(
     tiling = load_table(tiling_run_id, tiling_artifact, tiling_columns)
     tissue = load_table(tissue_run_id, tissue_artifact, tissue_columns)
     qc = load_table(qc_run_id, qc_artifact, qc_columns)
+    print(
+        f"[join_inputs] loaded rows: tiling={tiling.num_rows} "
+        f"tissue={tissue.num_rows} qc={qc.num_rows}",
+        flush=True,
+    )
+
+    # combine_chunks() collapses ChunkedArrays to contiguous; pyarrow's hash-join
+    # is dramatically faster on contiguous tables.
+    t0 = time.perf_counter()
+    tiling = tiling.combine_chunks()
+    tissue = tissue.combine_chunks()
+    qc = qc.combine_chunks()
+    print(
+        f"[join_inputs] combine_chunks done in {time.perf_counter() - t0:.1f}s",
+        flush=True,
+    )
 
     keys = ["slide_id", "x", "y"]
+    t0 = time.perf_counter()
     joined = tiling.join(tissue, keys=keys, join_type="inner")
+    print(
+        f"[join_inputs] tiling+tissue joined in {time.perf_counter() - t0:.1f}s "
+        f"({joined.num_rows} rows)",
+        flush=True,
+    )
+    t0 = time.perf_counter()
     joined = joined.join(qc, keys=keys, join_type="inner")
+    print(
+        f"[join_inputs] +qc joined in {time.perf_counter() - t0:.1f}s "
+        f"({joined.num_rows} rows)",
+        flush=True,
+    )
     return joined
 
 
@@ -145,7 +173,13 @@ def analyze(
     n_curve_points: int,
     output_dir: Path,
 ) -> None:
+    print(f"[analyze {split}] computing dominant class...", flush=True)
+    t0 = time.perf_counter()
     dominant = compute_dominant_class(table, class_names)
+    print(
+        f"[analyze {split}] dominant class done in {time.perf_counter() - t0:.1f}s",
+        flush=True,
+    )
     strata = [*class_names, BACKGROUND_LABEL]
 
     mlflow.log_metric(f"{split}_tile_count", len(table))
@@ -157,9 +191,15 @@ def analyze(
     # Class coverage columns: scalars (global only) + one combined survival figure.
     class_curves: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for cls in class_names:
+        t0 = time.perf_counter()
         values = table.column(f"roi_coverage_{cls}").to_numpy(zero_copy_only=False)
         log_scalar_stats(f"{split}_roi_coverage_{cls}", values)
         class_curves[cls] = survival_curve(values, n_curve_points)
+        print(
+            f"[analyze {split}] roi_coverage_{cls} done in "
+            f"{time.perf_counter() - t0:.1f}s",
+            flush=True,
+        )
     plot_survival(
         f"{split} — ROI class coverage survival curves",
         class_curves,
@@ -168,6 +208,7 @@ def analyze(
 
     # Tissue + QC columns: scalars (global + per dominant class) + per-column figure.
     for col in (TISSUE_COLUMN, *QC_COLUMNS):
+        t0 = time.perf_counter()
         values = table.column(col).to_numpy(zero_copy_only=False)
         log_scalar_stats(f"{split}_{col}", values)
 
@@ -184,6 +225,10 @@ def analyze(
             f"{split} — {col} survival curves by dominant class",
             curves,
             output_dir / f"survival_{col}.png",
+        )
+        print(
+            f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s",
+            flush=True,
         )
 
 
