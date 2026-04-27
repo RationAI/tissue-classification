@@ -3,13 +3,13 @@ import time
 from pathlib import Path
 from typing import cast
 
+import duckdb
 import hydra
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.artifacts
 import numpy as np
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import autolog, with_cli_args
@@ -110,110 +110,26 @@ def join_inputs(
         f"tissue={tissue.num_rows} qc={qc.num_rows}",
         flush=True,
     )
-    print(f"[join_inputs] tiling schema:\n{tiling.schema}", flush=True)
-    print(f"[join_inputs] tissue schema:\n{tissue.schema}", flush=True)
-    print(f"[join_inputs] qc schema:\n{qc.schema}", flush=True)
 
-    keys = ["slide_id", "x", "y"]
-    for name, t in [("tiling", tiling), ("tissue", tissue), ("qc", qc)]:
-        print(f"[debug] {name} first 5 keys:", flush=True)
-        print(t.slice(0, 5).select(keys).to_pandas(), flush=True)
-
-    sample_n = 100_000
-    tiling_s = tiling.slice(0, sample_n).select(keys)
-    tissue_s = tissue.slice(0, sample_n).select(keys)
-    qc_s = qc.slice(0, sample_n).select(keys)
-    print(
-        f"[debug] head tiling+tissue join: "
-        f"{tiling_s.join(tissue_s, keys=keys, join_type='inner').num_rows} / {sample_n}",
-        flush=True,
-    )
-    print(
-        f"[debug] head tiling+qc join: "
-        f"{tiling_s.join(qc_s, keys=keys, join_type='inner').num_rows} / {sample_n}",
-        flush=True,
-    )
-
-    tiling_t = tiling.slice(tiling.num_rows - sample_n).select(keys)
-    tissue_t = tissue.slice(tissue.num_rows - sample_n).select(keys)
-    qc_t = qc.slice(qc.num_rows - sample_n).select(keys)
-    print(
-        f"[debug] tail tiling+tissue join: "
-        f"{tiling_t.join(tissue_t, keys=keys, join_type='inner').num_rows} / {sample_n}",
-        flush=True,
-    )
-    print(
-        f"[debug] tail tiling+qc join: "
-        f"{tiling_t.join(qc_t, keys=keys, join_type='inner').num_rows} / {sample_n}",
-        flush=True,
-    )
-
-    tiling_slides = set(pc.unique(tiling.column("slide_id")).to_pylist())
-    tissue_slides = set(pc.unique(tissue.column("slide_id")).to_pylist())
-    qc_slides = set(pc.unique(qc.column("slide_id")).to_pylist())
-    print(
-        f"[debug] slide counts: tiling={len(tiling_slides)} "
-        f"tissue={len(tissue_slides)} qc={len(qc_slides)}",
-        flush=True,
-    )
-    print(
-        f"[debug] in tiling but not tissue: {len(tiling_slides - tissue_slides)}",
-        flush=True,
-    )
-    print(
-        f"[debug] in tissue but not tiling: {len(tissue_slides - tiling_slides)}",
-        flush=True,
-    )
-    print(
-        f"[debug] in tiling but not qc: {len(tiling_slides - qc_slides)}", flush=True
-    )
-    print(
-        f"[debug] in qc but not tiling: {len(qc_slides - tiling_slides)}", flush=True
-    )
-
-    for name, t in [("tiling", tiling), ("tissue", tissue), ("qc", qc)]:
-        nulls = {k: int(pc.sum(pc.is_null(t.column(k))).as_py() or 0) for k in keys}
-        print(f"[debug] {name} null counts: {nulls}", flush=True)
-
-    import duckdb
-
+    # pyarrow's Table.join silently produces incorrect results on string-keyed
+    # joins at 10M+ rows (we observed 49M output from a 79M-row inner join that
+    # should have matched fully). DuckDB returns the correct row count.
+    t0 = time.perf_counter()
     con = duckdb.connect()
     con.register("tiling_t", tiling)
     con.register("tissue_t", tissue)
     con.register("qc_t", qc)
-    n_tt = con.execute(
-        "SELECT COUNT(*) FROM tiling_t INNER JOIN tissue_t USING (slide_id, x, y)"
-    ).fetchone()[0]
-    n_tq = con.execute(
-        "SELECT COUNT(*) FROM tiling_t INNER JOIN qc_t USING (slide_id, x, y)"
-    ).fetchone()[0]
-    print(f"[debug] duckdb tiling+tissue join: {n_tt}", flush=True)
-    print(f"[debug] duckdb tiling+qc join: {n_tq}", flush=True)
-
-    # combine_chunks() collapses ChunkedArrays to contiguous; pyarrow's hash-join
-    # is dramatically faster on contiguous tables.
-    t0 = time.perf_counter()
-    tiling = tiling.combine_chunks()
-    tissue = tissue.combine_chunks()
-    qc = qc.combine_chunks()
+    joined = con.execute(
+        """
+        SELECT *
+        FROM tiling_t
+        INNER JOIN tissue_t USING (slide_id, x, y)
+        INNER JOIN qc_t USING (slide_id, x, y)
+        """
+    ).arrow()
     print(
-        f"[join_inputs] combine_chunks done in {time.perf_counter() - t0:.1f}s",
-        flush=True,
-    )
-
-    keys = ["slide_id", "x", "y"]
-    t0 = time.perf_counter()
-    joined = tiling.join(tissue, keys=keys, join_type="inner")
-    print(
-        f"[join_inputs] tiling+tissue joined in {time.perf_counter() - t0:.1f}s "
-        f"({joined.num_rows} rows)",
-        flush=True,
-    )
-    t0 = time.perf_counter()
-    joined = joined.join(qc, keys=keys, join_type="inner")
-    print(
-        f"[join_inputs] +qc joined in {time.perf_counter() - t0:.1f}s "
-        f"({joined.num_rows} rows)",
+        f"[join_inputs] duckdb 3-way join: {joined.num_rows} rows in "
+        f"{time.perf_counter() - t0:.1f}s",
         flush=True,
     )
     return joined
