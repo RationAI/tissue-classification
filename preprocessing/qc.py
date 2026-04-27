@@ -63,7 +63,7 @@ async def qc_main(
         ),
     ]
 
-    async with rationai.AsyncClient() as client:
+    async with rationai.AsyncClient() as client:  # type: ignore[attr-defined]
         tasks = []
 
         for group, use_wb in processing_groups:

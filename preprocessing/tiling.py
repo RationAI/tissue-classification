@@ -1,7 +1,7 @@
 import re
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import hydra
 import mlflow
@@ -237,7 +237,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
         df_slides, df_tiles = tiling(
             df=split_df,
-            class_mapping=OmegaConf.to_container(config.class_mapping, resolve=True),
+            class_mapping=cast(
+                "dict[str, list[str]]",
+                OmegaConf.to_container(config.class_mapping, resolve=True),
+            ),
             tile_extent=config.tile_size,
             stride=config.stride,
             mpp=config.mpp,
