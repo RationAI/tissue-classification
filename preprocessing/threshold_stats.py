@@ -148,9 +148,10 @@ def plot_threshold_sweep(
             thresholds, counts, label=label, linewidth=1.5 if label == "all" else 1.0
         )
     ax.set_xlabel("threshold")
-    ax.set_ylabel("count of tiles with coverage > threshold")
+    ax.set_ylabel("count of tiles with coverage > threshold (log)")
     ax.set_title(title)
     ax.set_xlim(0, 1)
+    ax.set_yscale("log")
     ax.legend(fontsize=8, loc="best")
     fig.tight_layout()
     fig.savefig(output_path, dpi=120)
@@ -179,9 +180,10 @@ def plot_histogram(
             bottom = bottom + counts
 
     ax.set_xlabel("coverage bucket")
-    ax.set_ylabel("tile count")
+    ax.set_ylabel("tile count (log)")
     ax.set_title(title)
     ax.set_xlim(0, 1)
+    ax.set_yscale("log")
     ax.legend(fontsize=8, loc="best")
     fig.tight_layout()
     fig.savefig(output_path, dpi=120)
