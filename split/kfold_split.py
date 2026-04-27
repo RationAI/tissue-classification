@@ -1,5 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import hydra
 import mlflow
@@ -18,7 +19,7 @@ def derive_labels(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Derive label, tissue_prop, and slide_id arrays from the dataset."""
 
-    def compute(batch: dict) -> dict:
+    def compute(batch: dict[str, Any]) -> dict[str, Any]:
         roi_df = pd.DataFrame({col: batch[col] for col in roi_cols})
         tp = roi_df.sum(axis=1).values
         lbl = roi_df.idxmax(axis=1).str.removeprefix("roi_coverage_").values
