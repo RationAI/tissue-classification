@@ -57,20 +57,22 @@ def scalar_stats(values: np.ndarray) -> dict[str, float]:
     }
 
 
-def survival_curve(values: np.ndarray, n_points: int) -> tuple[np.ndarray, np.ndarray]:
-    """Return (thresholds, fraction_remaining) sampled at empirical quantiles.
+HISTOGRAM_BIN_EDGES = np.linspace(0.0, 1.0, 11)
 
-    Empirical-quantile sampling concentrates points where data is dense, giving
-    a more useful curve for threshold selection than uniform [0, 1] sampling.
-    """
+
+def threshold_sweep(values: np.ndarray, n_points: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return (thresholds, count_above) for thresholds uniformly sampled in [0, 1]."""
     sorted_vals = np.sort(values)
-    n = len(sorted_vals)
-    if n == 0:
-        return np.zeros(0), np.zeros(0)
-    sample_qs = np.linspace(0.0, 1.0, n_points)
-    thresholds = np.quantile(sorted_vals, sample_qs)
-    counts_remaining = n - np.searchsorted(sorted_vals, thresholds, side="left")
-    return thresholds, counts_remaining / n
+    thresholds = np.linspace(0.0, 1.0, n_points)
+    counts_above = len(sorted_vals) - np.searchsorted(
+        sorted_vals, thresholds, side="left"
+    )
+    return thresholds, counts_above
+
+
+def histogram_counts(values: np.ndarray) -> np.ndarray:
+    counts, _ = np.histogram(values, bins=HISTOGRAM_BIN_EDGES)
+    return counts
 
 
 def compute_dominant_class(table: pa.Table, class_names: list[str]) -> np.ndarray:
@@ -126,7 +128,7 @@ def join_inputs(
         INNER JOIN tissue_t USING (slide_id, x, y)
         INNER JOIN qc_t USING (slide_id, x, y)
         """
-    ).fetch_arrow_table()
+    ).to_arrow_table()
     print(
         f"[join_inputs] duckdb 3-way join: {joined.num_rows} rows in "
         f"{time.perf_counter() - t0:.1f}s",
@@ -135,22 +137,51 @@ def join_inputs(
     return joined
 
 
-def plot_survival(
+def plot_threshold_sweep(
     title: str,
     curves: dict[str, tuple[np.ndarray, np.ndarray]],
     output_path: Path,
 ) -> None:
     fig, ax = plt.subplots(figsize=(8, 5))
-    for label, (thresholds, fractions) in curves.items():
+    for label, (thresholds, counts) in curves.items():
         ax.plot(
-            thresholds, fractions, label=label, linewidth=1.5 if label == "all" else 1.0
+            thresholds, counts, label=label, linewidth=1.5 if label == "all" else 1.0
         )
     ax.set_xlabel("threshold")
-    ax.set_ylabel("fraction of tiles with coverage >= threshold")
+    ax.set_ylabel("count of tiles with coverage > threshold")
     ax.set_title(title)
     ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8, loc="best")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=120)
+    plt.close(fig)
+
+
+def plot_histogram(
+    title: str,
+    series: dict[str, np.ndarray],
+    output_path: Path,
+) -> None:
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bin_centers = (HISTOGRAM_BIN_EDGES[:-1] + HISTOGRAM_BIN_EDGES[1:]) / 2
+    bin_width = HISTOGRAM_BIN_EDGES[1] - HISTOGRAM_BIN_EDGES[0]
+
+    if len(series) == 1:
+        label, counts = next(iter(series.items()))
+        ax.bar(bin_centers, counts, width=bin_width * 0.9, label=label)
+    else:
+        # Stacked bars per dominant class.
+        bottom = np.zeros(len(bin_centers))
+        for label, counts in series.items():
+            ax.bar(
+                bin_centers, counts, width=bin_width * 0.9, bottom=bottom, label=label
+            )
+            bottom = bottom + counts
+
+    ax.set_xlabel("coverage bucket")
+    ax.set_ylabel("tile count")
+    ax.set_title(title)
+    ax.set_xlim(0, 1)
     ax.legend(fontsize=8, loc="best")
     fig.tight_layout()
     fig.savefig(output_path, dpi=120)
@@ -184,43 +215,57 @@ def analyze(
             f"{split}_tile_count_{label}", int((dominant == label).sum())
         )
 
-    # Class coverage columns: scalars (global only) + one combined survival figure.
-    class_curves: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    # Class coverage columns: scalars (global) + one combined sweep + one combined histogram.
+    class_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    class_hists: dict[str, np.ndarray] = {}
     for cls in class_names:
         t0 = time.perf_counter()
         values = table.column(f"roi_coverage_{cls}").to_numpy(zero_copy_only=False)
         log_scalar_stats(f"{split}_roi_coverage_{cls}", values)
-        class_curves[cls] = survival_curve(values, n_curve_points)
+        class_sweeps[cls] = threshold_sweep(values, n_curve_points)
+        class_hists[cls] = histogram_counts(values)
         print(
             f"[analyze {split}] roi_coverage_{cls} done in "
             f"{time.perf_counter() - t0:.1f}s",
             flush=True,
         )
-    plot_survival(
-        f"{split} — ROI class coverage survival curves",
-        class_curves,
-        output_dir / "survival_class_coverage.png",
+    plot_threshold_sweep(
+        f"{split} — ROI class coverage threshold sweep",
+        class_sweeps,
+        output_dir / "sweep_class_coverage.png",
+    )
+    plot_histogram(
+        f"{split} — ROI class coverage histogram",
+        class_hists,
+        output_dir / "histogram_class_coverage.png",
     )
 
-    # Tissue + QC columns: scalars (global + per dominant class) + per-column figure.
+    # Tissue + QC columns: scalars (global + per dominant class) + per-column figures.
     for col in (TISSUE_COLUMN, *QC_COLUMNS):
         t0 = time.perf_counter()
         values = table.column(col).to_numpy(zero_copy_only=False)
         log_scalar_stats(f"{split}_{col}", values)
 
-        curves = {"all": survival_curve(values, n_curve_points)}
+        sweeps = {"all": threshold_sweep(values, n_curve_points)}
+        hists: dict[str, np.ndarray] = {}
         for label in strata:
             mask = dominant == label
             if not mask.any():
                 continue
             stratum_values = values[mask]
             log_scalar_stats(f"{split}_{col}_class_{label}", stratum_values)
-            curves[label] = survival_curve(stratum_values, n_curve_points)
+            sweeps[label] = threshold_sweep(stratum_values, n_curve_points)
+            hists[label] = histogram_counts(stratum_values)
 
-        plot_survival(
-            f"{split} — {col} survival curves by dominant class",
-            curves,
-            output_dir / f"survival_{col}.png",
+        plot_threshold_sweep(
+            f"{split} — {col} threshold sweep by dominant class",
+            sweeps,
+            output_dir / f"sweep_{col}.png",
+        )
+        plot_histogram(
+            f"{split} — {col} histogram by dominant class",
+            hists,
+            output_dir / f"histogram_{col}.png",
         )
         print(
             f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s",
