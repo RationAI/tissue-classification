@@ -1,0 +1,8 @@
+code_review:
+  instructions: |
+    Review code changes and provide feedback as short bullet points only.
+    - No introductory or closing sentences
+    - One bullet per issue
+    - Each bullet: what is wrong and how to fix it, nothing more
+    - Skip compliments and summaries
+    - If there is nothing to flag, say only: "LGTM"
