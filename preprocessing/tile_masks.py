@@ -1,5 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import hydra
 import mlflow
@@ -50,7 +51,7 @@ def _draw_tile_outlines(
 
 @ray.remote(num_cpus=1, memory=3 * 1024**3)
 def process_slide(
-    item: tuple[dict[str, object], pd.DataFrame],
+    item: tuple[dict[str, Any], pd.DataFrame],
     output_dir: str,
     downsample: int,
 ) -> None:
@@ -110,9 +111,9 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         for slide_id, group in tiles.groupby("slide_id")
     }
 
-    items = [
+    items: list[tuple[dict[str, Any], pd.DataFrame]] = [
         (
-            slide.to_dict(),
+            {str(k): v for k, v in slide.to_dict().items()},
             tiles_by_slide.get(slide["id"], pd.DataFrame(columns=["x", "y"])),
         )
         for _, slide in slides.iterrows()
