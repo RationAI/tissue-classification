@@ -9,6 +9,7 @@ import mlflow
 import mlflow.artifacts
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import autolog, with_cli_args
@@ -123,14 +124,51 @@ def join_inputs(
     tissue_s = tissue.slice(0, sample_n).select(keys)
     qc_s = qc.slice(0, sample_n).select(keys)
     print(
-        f"[debug] sample tiling+tissue join: "
+        f"[debug] head tiling+tissue join: "
         f"{tiling_s.join(tissue_s, keys=keys, join_type='inner').num_rows} / {sample_n}",
         flush=True,
     )
     print(
-        f"[debug] sample tiling+qc join: "
+        f"[debug] head tiling+qc join: "
         f"{tiling_s.join(qc_s, keys=keys, join_type='inner').num_rows} / {sample_n}",
         flush=True,
+    )
+
+    tiling_t = tiling.slice(tiling.num_rows - sample_n).select(keys)
+    tissue_t = tissue.slice(tissue.num_rows - sample_n).select(keys)
+    qc_t = qc.slice(qc.num_rows - sample_n).select(keys)
+    print(
+        f"[debug] tail tiling+tissue join: "
+        f"{tiling_t.join(tissue_t, keys=keys, join_type='inner').num_rows} / {sample_n}",
+        flush=True,
+    )
+    print(
+        f"[debug] tail tiling+qc join: "
+        f"{tiling_t.join(qc_t, keys=keys, join_type='inner').num_rows} / {sample_n}",
+        flush=True,
+    )
+
+    tiling_slides = set(pc.unique(tiling.column("slide_id")).to_pylist())
+    tissue_slides = set(pc.unique(tissue.column("slide_id")).to_pylist())
+    qc_slides = set(pc.unique(qc.column("slide_id")).to_pylist())
+    print(
+        f"[debug] slide counts: tiling={len(tiling_slides)} "
+        f"tissue={len(tissue_slides)} qc={len(qc_slides)}",
+        flush=True,
+    )
+    print(
+        f"[debug] in tiling but not tissue: {len(tiling_slides - tissue_slides)}",
+        flush=True,
+    )
+    print(
+        f"[debug] in tissue but not tiling: {len(tissue_slides - tiling_slides)}",
+        flush=True,
+    )
+    print(
+        f"[debug] in tiling but not qc: {len(tiling_slides - qc_slides)}", flush=True
+    )
+    print(
+        f"[debug] in qc but not tiling: {len(qc_slides - tiling_slides)}", flush=True
     )
 
     # combine_chunks() collapses ChunkedArrays to contiguous; pyarrow's hash-join
