@@ -109,6 +109,9 @@ def join_inputs(
         f"tissue={tissue.num_rows} qc={qc.num_rows}",
         flush=True,
     )
+    print(f"[join_inputs] tiling schema:\n{tiling.schema}", flush=True)
+    print(f"[join_inputs] tissue schema:\n{tissue.schema}", flush=True)
+    print(f"[join_inputs] qc schema:\n{qc.schema}", flush=True)
 
     # combine_chunks() collapses ChunkedArrays to contiguous; pyarrow's hash-join
     # is dramatically faster on contiguous tables.
