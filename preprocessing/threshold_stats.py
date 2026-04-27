@@ -171,6 +171,25 @@ def join_inputs(
         f"[debug] in qc but not tiling: {len(qc_slides - tiling_slides)}", flush=True
     )
 
+    for name, t in [("tiling", tiling), ("tissue", tissue), ("qc", qc)]:
+        nulls = {k: int(pc.sum(pc.is_null(t.column(k))).as_py() or 0) for k in keys}
+        print(f"[debug] {name} null counts: {nulls}", flush=True)
+
+    import duckdb
+
+    con = duckdb.connect()
+    con.register("tiling_t", tiling)
+    con.register("tissue_t", tissue)
+    con.register("qc_t", qc)
+    n_tt = con.execute(
+        "SELECT COUNT(*) FROM tiling_t INNER JOIN tissue_t USING (slide_id, x, y)"
+    ).fetchone()[0]
+    n_tq = con.execute(
+        "SELECT COUNT(*) FROM tiling_t INNER JOIN qc_t USING (slide_id, x, y)"
+    ).fetchone()[0]
+    print(f"[debug] duckdb tiling+tissue join: {n_tt}", flush=True)
+    print(f"[debug] duckdb tiling+qc join: {n_tq}", flush=True)
+
     # combine_chunks() collapses ChunkedArrays to contiguous; pyarrow's hash-join
     # is dramatically faster on contiguous tables.
     t0 = time.perf_counter()
