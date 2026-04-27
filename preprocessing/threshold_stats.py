@@ -126,7 +126,7 @@ def join_inputs(
         INNER JOIN tissue_t USING (slide_id, x, y)
         INNER JOIN qc_t USING (slide_id, x, y)
         """
-    ).arrow()
+    ).fetch_arrow_table()
     print(
         f"[join_inputs] duckdb 3-way join: {joined.num_rows} rows in "
         f"{time.perf_counter() - t0:.1f}s",
