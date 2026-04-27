@@ -1,4 +1,5 @@
 import tempfile
+import time
 from pathlib import Path
 from typing import cast
 
@@ -21,8 +22,18 @@ BACKGROUND_LABEL = "background"
 
 
 def load_table(run_id: str, artifact_path: str, columns: list[str]) -> pa.Table:
+    print(
+        f"[load_table] downloading run={run_id[:8]} path={artifact_path}", flush=True
+    )
+    t0 = time.perf_counter()
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
+    )
+    size_mb = Path(local_path).stat().st_size / 1024**2
+    print(
+        f"[load_table] got {size_mb:.1f} MB in {time.perf_counter() - t0:.1f}s "
+        f"-> {local_path}",
+        flush=True,
     )
     return pq.read_table(local_path, columns=columns)
 
