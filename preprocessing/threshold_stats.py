@@ -113,13 +113,25 @@ def join_inputs(
     print(f"[join_inputs] tissue schema:\n{tissue.schema}", flush=True)
     print(f"[join_inputs] qc schema:\n{qc.schema}", flush=True)
 
+    keys = ["slide_id", "x", "y"]
     for name, t in [("tiling", tiling), ("tissue", tissue), ("qc", qc)]:
-        n_unique = t.group_by(["slide_id", "x", "y"]).aggregate([]).num_rows
-        print(
-            f"[join_inputs] {name} unique (slide_id,x,y): {n_unique} / "
-            f"total: {t.num_rows}",
-            flush=True,
-        )
+        print(f"[debug] {name} first 5 keys:", flush=True)
+        print(t.slice(0, 5).select(keys).to_pandas(), flush=True)
+
+    sample_n = 100_000
+    tiling_s = tiling.slice(0, sample_n).select(keys)
+    tissue_s = tissue.slice(0, sample_n).select(keys)
+    qc_s = qc.slice(0, sample_n).select(keys)
+    print(
+        f"[debug] sample tiling+tissue join: "
+        f"{tiling_s.join(tissue_s, keys=keys, join_type='inner').num_rows} / {sample_n}",
+        flush=True,
+    )
+    print(
+        f"[debug] sample tiling+qc join: "
+        f"{tiling_s.join(qc_s, keys=keys, join_type='inner').num_rows} / {sample_n}",
+        flush=True,
+    )
 
     # combine_chunks() collapses ChunkedArrays to contiguous; pyarrow's hash-join
     # is dramatically faster on contiguous tables.
