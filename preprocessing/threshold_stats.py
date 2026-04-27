@@ -122,12 +122,13 @@ def plot_survival(
     plt.close(fig)
 
 
-def log_scalar_stats(prefix: str, values: np.ndarray) -> None:
+def log_scalar_stats(metric_prefix: str, values: np.ndarray) -> None:
     for key, value in scalar_stats(values).items():
-        mlflow.log_metric(f"{prefix}_{key}", value)
+        mlflow.log_metric(f"{metric_prefix}_{key}", value)
 
 
 def analyze(
+    split: str,
     table: pa.Table,
     class_names: list[str],
     n_curve_points: int,
@@ -136,18 +137,20 @@ def analyze(
     dominant = compute_dominant_class(table, class_names)
     strata = [*class_names, BACKGROUND_LABEL]
 
-    mlflow.log_metric("tile_count", len(table))
+    mlflow.log_metric(f"{split}_tile_count", len(table))
     for label in strata:
-        mlflow.log_metric(f"tile_count_{label}", int((dominant == label).sum()))
+        mlflow.log_metric(
+            f"{split}_tile_count_{label}", int((dominant == label).sum())
+        )
 
     # Class coverage columns: scalars (global only) + one combined survival figure.
     class_curves: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for cls in class_names:
         values = table.column(f"roi_coverage_{cls}").to_numpy(zero_copy_only=False)
-        log_scalar_stats(f"roi_coverage_{cls}", values)
+        log_scalar_stats(f"{split}_roi_coverage_{cls}", values)
         class_curves[cls] = survival_curve(values, n_curve_points)
     plot_survival(
-        "ROI class coverage — survival curves",
+        f"{split} — ROI class coverage survival curves",
         class_curves,
         output_dir / "survival_class_coverage.png",
     )
@@ -155,7 +158,7 @@ def analyze(
     # Tissue + QC columns: scalars (global + per dominant class) + per-column figure.
     for col in (TISSUE_COLUMN, *QC_COLUMNS):
         values = table.column(col).to_numpy(zero_copy_only=False)
-        log_scalar_stats(col, values)
+        log_scalar_stats(f"{split}_{col}", values)
 
         curves = {"all": survival_curve(values, n_curve_points)}
         for label in strata:
@@ -163,11 +166,11 @@ def analyze(
             if not mask.any():
                 continue
             stratum_values = values[mask]
-            log_scalar_stats(f"{col}_class_{label}", stratum_values)
+            log_scalar_stats(f"{split}_{col}_class_{label}", stratum_values)
             curves[label] = survival_curve(stratum_values, n_curve_points)
 
         plot_survival(
-            f"{col} — survival curves by dominant class",
+            f"{split} — {col} survival curves by dominant class",
             curves,
             output_dir / f"survival_{col}.png",
         )
@@ -183,19 +186,26 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     )
     class_names = list(class_mapping.keys())
 
-    table = join_inputs(
-        tiling_run_id=config.dataset.mlflow_artifacts.tiling_run_id,
-        tiling_artifact=config.tiling_tiles_artifact,
-        tissue_run_id=config.dataset.mlflow_artifacts.tissue_stats_run_id,
-        tissue_artifact=config.tissue_tiles_artifact,
-        qc_run_id=config.dataset.mlflow_artifacts.qc_stats_run_id,
-        qc_artifact=config.qc_tiles_artifact,
-        class_names=class_names,
-    )
-
     with tempfile.TemporaryDirectory() as tmp_dir:
-        output_dir = Path(tmp_dir)
-        analyze(table, class_names, config.survival_curve_points, output_dir)
+        for split in ("train", "test"):
+            table = join_inputs(
+                tiling_run_id=config.dataset.mlflow_artifacts.tiling_run_id,
+                tiling_artifact=config.tiling_tiles_artifact_template.format(
+                    split=split
+                ),
+                tissue_run_id=config.dataset.mlflow_artifacts.tissue_stats_run_id,
+                tissue_artifact=config.tissue_tiles_artifact_template.format(
+                    split=split
+                ),
+                qc_run_id=config.dataset.mlflow_artifacts.qc_stats_run_id,
+                qc_artifact=config.qc_tiles_artifact_template.format(split=split),
+                class_names=class_names,
+            )
+
+            split_dir = Path(tmp_dir) / split
+            split_dir.mkdir()
+            analyze(split, table, class_names, config.survival_curve_points, split_dir)
+
         mlflow.log_artifacts(tmp_dir, config.mlflow_artifact_path)
 
 

@@ -2,10 +2,11 @@
 
 mlflow_artifact_path: threshold_stats
 
-# Upstream artifact locations. Adjust if upstream `mlflow_artifact_path` differs.
-tiling_tiles_artifact: train_split/tiles.parquet
-tissue_tiles_artifact: tissue_stats/train_tiles.parquet
-qc_tiles_artifact: qc_stats/train_tiles.parquet
+# Upstream artifact templates ({split} resolved to "train" / "test").
+# Adjust if upstream `mlflow_artifact_path` differs.
+tiling_tiles_artifact_template: "{split}_split/tiles.parquet"
+tissue_tiles_artifact_template: "tissue_stats/{split}_tiles.parquet"
+qc_tiles_artifact_template: "qc_stats/{split}_tiles.parquet"
 
 # Number of empirical-quantile sample points used to draw survival curves.
 survival_curve_points: 200
