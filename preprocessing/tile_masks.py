@@ -4,49 +4,13 @@ from typing import Any
 
 import hydra
 import mlflow
-import numpy as np
 import pandas as pd
 import pyvips
 import ray
 from omegaconf import DictConfig
-from rationai.masks import process_items, write_big_tiff
+from rationai.masks import process_items, tile_mask, write_big_tiff
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
-
-
-def _draw_tile_outlines(
-    tiles: pd.DataFrame,
-    tile_extent: tuple[int, int],
-    size: tuple[int, int],
-    outline_width: int = 4,
-) -> np.ndarray:
-    tw, th = tile_extent
-    width, height = size
-    ow = min(outline_width, tw // 2, th // 2)
-    mask = np.zeros((height, width), dtype=np.uint8)
-
-    xs = tiles["x"].to_numpy()
-    ys = tiles["y"].to_numpy()
-
-    h_cols = (xs[:, None] + np.arange(tw)[None, :]).ravel()
-    v_rows = (ys[:, None] + np.arange(th)[None, :]).ravel()
-
-    h_cols_in = (h_cols >= 0) & (h_cols < width)
-    v_rows_in = (v_rows >= 0) & (v_rows < height)
-
-    for dy in range(ow):
-        for ry in (ys + dy, ys + th - ow + dy):
-            rows = np.repeat(ry, tw)
-            ok = h_cols_in & (rows >= 0) & (rows < height)
-            mask[rows[ok], h_cols[ok]] = 255
-
-    for dx in range(ow):
-        for cx in (xs + dx, xs + tw - ow + dx):
-            cols = np.repeat(cx, th)
-            ok = v_rows_in & (cols >= 0) & (cols < width)
-            mask[v_rows[ok], cols[ok]] = 255
-
-    return mask
 
 
 @ray.remote(num_cpus=1, memory=3 * 1024**3)
@@ -62,7 +26,7 @@ def process_slide(
         y=slide_tiles["y"] // downsample,
     )
 
-    mask = _draw_tile_outlines(
+    mask = tile_mask(
         scaled_tiles,
         tile_extent=(
             slide["tile_extent_x"] // downsample,
@@ -74,13 +38,13 @@ def process_slide(
         ),
     )
 
-    height, width = mask.shape
+    width, height = mask.size
 
     write_big_tiff(
         image=pyvips.Image.new_from_memory(
             data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
         ),
-        path=Path(output_dir, f"{slide['id']}.tiff"),
+        path=Path(output_dir, f"{Path(slide['wsi_path']).stem}.tiff"),
         mpp_x=slide["mpp_x"] * downsample,
         mpp_y=slide["mpp_y"] * downsample,
     )
