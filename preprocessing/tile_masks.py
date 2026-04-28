@@ -1,3 +1,4 @@
+from math import ceil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -33,8 +34,8 @@ def process_slide(
             slide["tile_extent_y"] // downsample,
         ),
         size=(
-            slide["extent_x"] // downsample,
-            slide["extent_y"] // downsample,
+            ceil(slide["extent_x"] / downsample),
+            ceil(slide["extent_y"] / downsample),
         ),
     )
 
