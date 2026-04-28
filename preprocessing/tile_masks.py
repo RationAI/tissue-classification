@@ -44,7 +44,7 @@ def process_slide(
         image=pyvips.Image.new_from_memory(
             data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
         ),
-        path=Path(output_dir, f"{Path(slide['wsi_path']).stem}.tiff"),
+        path=Path(output_dir, f"{Path(slide['path']).stem}.tiff"),
         mpp_x=slide["mpp_x"] * downsample,
         mpp_y=slide["mpp_y"] * downsample,
     )
