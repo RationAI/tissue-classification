@@ -63,9 +63,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     items: list[tuple[dict[str, Any], pd.DataFrame]] = [
         (
             {str(k): v for k, v in slide.to_dict().items()},
-            tiles_by_slide.get(
-                slide["id"], pd.DataFrame(columns=["x", "y"])
-            ),
+            tiles_by_slide.get(slide["id"], pd.DataFrame(columns=["x", "y"])),
         )
         for _, slide in slides.iterrows()
     ]
