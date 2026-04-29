@@ -1,7 +1,7 @@
 # @package _global_
 
 model: ???
-output_dir: ${project_dir}/embeddings
+output_dir: ${project_path}/embeddings
 concurrency: 512
 block_size: 128
 rows_per_file: 5000
