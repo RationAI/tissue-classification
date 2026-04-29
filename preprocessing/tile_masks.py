@@ -1,3 +1,4 @@
+from math import gcd
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -22,16 +23,17 @@ def process_slide(
     slide, slide_tiles = item
     filename = f"{Path(slide['path']).stem}.tiff"
 
+    d = gcd(int(slide["stride_x"]), int(slide["tile_extent_x"]))
     mask = tile_mask(
-        slide_tiles,
-        tile_extent=(slide["tile_extent_x"], slide["tile_extent_y"]),
-        size=(slide["extent_x"], slide["extent_y"]),
+        slide_tiles.assign(x=slide_tiles["x"] // d, y=slide_tiles["y"] // d),
+        tile_extent=(slide["tile_extent_x"] // d, slide["tile_extent_y"] // d),
+        size=(slide["extent_x"] // d, slide["extent_y"] // d),
     )
     write_big_tiff(
         pyvips.Image.new_from_array(np.array(mask)),
         Path(output_dir, "outlines", filename),
-        mpp_x=slide["mpp_x"],
-        mpp_y=slide["mpp_y"],
+        mpp_x=slide["mpp_x"] * d,
+        mpp_y=slide["mpp_y"] * d,
     )
 
 
