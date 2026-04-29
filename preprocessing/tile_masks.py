@@ -8,10 +8,8 @@ import numpy as np
 import pandas as pd
 import pyvips
 import ray
-import torch
 from omegaconf import DictConfig
 from rationai.masks import process_items, tile_mask, write_big_tiff
-from rationai.masks.mask_builders import ScalarMaskBuilder
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 
@@ -20,28 +18,9 @@ from rationai.mlkit.lightning.loggers import MLFlowLogger
 def process_slide(
     item: tuple[dict[str, Any], pd.DataFrame],
     output_dir: str,
-    tile_percentage_cols: list[str],
 ) -> None:
     slide, slide_tiles = item
     filename = f"{Path(slide['path']).stem}.tiff"
-
-    for percentage_col in tile_percentage_cols:
-        builder = ScalarMaskBuilder(
-            save_dir=Path(output_dir, percentage_col),
-            filename=filename,
-            extent_x=slide["extent_x"],
-            extent_y=slide["extent_y"],
-            mpp_x=slide["mpp_x"],
-            mpp_y=slide["mpp_y"],
-            extent_tile=slide["tile_extent_x"],
-            stride=slide["stride_x"],
-        )
-        builder.update(
-            data=torch.tensor(slide_tiles[percentage_col].values).unsqueeze(1),
-            xs=torch.tensor(slide_tiles["x"].values),
-            ys=torch.tensor(slide_tiles["y"].values),
-        )
-        builder.save()
 
     mask = tile_mask(
         slide_tiles,
@@ -61,7 +40,6 @@ def process_slide(
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
     tiling_run_id = config.dataset.mlflow_artifacts.tiling_run_id
-    tile_percentage_cols: list[str] = list(config.tile_percentage_cols)
 
     slides = pd.read_parquet(
         mlflow.artifacts.download_artifacts(
@@ -74,7 +52,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             run_id=tiling_run_id,
             artifact_path=config.tiles_artifact_path,
         ),
-        columns=["slide_id", "x", "y", *tile_percentage_cols],
+        columns=["slide_id", "x", "y"],
     )
 
     tiles_by_slide = {
@@ -86,7 +64,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         (
             {str(k): v for k, v in slide.to_dict().items()},
             tiles_by_slide.get(
-                slide["id"], pd.DataFrame(columns=["x", "y", *tile_percentage_cols])
+                slide["id"], pd.DataFrame(columns=["x", "y"])
             ),
         )
         for _, slide in slides.iterrows()
@@ -98,7 +76,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             process_item=process_slide,
             fn_kwargs={
                 "output_dir": output_dir,
-                "tile_percentage_cols": tile_percentage_cols,
             },
             max_concurrent=config.max_concurrent,
         )

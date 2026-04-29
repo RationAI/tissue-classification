@@ -2,7 +2,6 @@
 
 slides_artifact_path: ???
 tiles_artifact_path: ???
-tile_percentage_cols: ???
 
 max_concurrent: 8
 mlflow_artifact_path: tile_masks
