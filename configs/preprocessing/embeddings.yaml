@@ -3,7 +3,8 @@
 model: ???
 output_dir: ${project_dir}/embeddings
 concurrency: 1024
-batch_size: 2048
+block_size: 2048
+rows_per_file: 65536
 
 metadata:
   run_name: "Embeddings: ${model}"
@@ -11,4 +12,4 @@ metadata:
   hyperparams:
     model: ${model}
     concurrency: ${concurrency}
-    batch_size: ${batch_size}
+    block_size: ${block_size}

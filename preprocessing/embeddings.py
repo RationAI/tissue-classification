@@ -1,48 +1,31 @@
 import shutil
 from pathlib import Path
+from typing import Any
 
+import httpx
 import hydra
 import mlflow.artifacts
 import pandas as pd
 import pyarrow as pa
 import ray
 from omegaconf import DictConfig
-from PIL import Image
 from rationai import AsyncClient
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
-from ratiopath.tiling.read_slide_tiles import read_openslide_tiles
-from ratiopath.tiling.types import ReadTilesArguments
-
-
-def read_tiles_batch(batch: pd.DataFrame) -> pd.DataFrame:
-    tile_images: dict[int, Image.Image] = {}
-    batch = batch.reset_index(drop=True)
-
-    for path, group in batch.groupby("path"):
-        assert isinstance(path, str)
-        kwargs: ReadTilesArguments = {
-            "tile_x": pa.array(group["x"].tolist()),
-            "tile_y": pa.array(group["y"].tolist()),
-            "tile_extent_x": pa.array(group["tile_extent_x"].tolist()),
-            "tile_extent_y": pa.array(group["tile_extent_y"].tolist()),
-            "level": pa.array(group["level"].tolist()),
-        }
-        tiles = read_openslide_tiles(path, **kwargs)
-        for i, idx in enumerate(group.index):
-            tile_images[idx] = Image.fromarray(tiles[i])
-
-    return batch.drop(columns=["path", "level", "tile_extent_x", "tile_extent_y"]).assign(
-        tile=pd.Series(tile_images)
-    )
+from ratiopath.tiling.read_slide_tiles import read_slide_tiles
+from ray.data.expressions import col
 
 
 class EmbedTiles:
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, concurrency: int) -> None:
         self.model = model
-        self.client = AsyncClient()
+        self.client = AsyncClient(
+            limits=httpx.Limits(
+                max_connections=concurrency, max_keepalive_connections=concurrency
+            )
+        )
 
-    async def __call__(self, row: dict) -> dict:
+    async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
         embedding = (
             (await self.client.models.embed_image(self.model, row["tile"]))
             .reshape(-1)
@@ -62,36 +45,46 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         slides = pd.read_parquet(folder / "slides.parquet")
         tiles = pd.read_parquet(folder / "tiles.parquet")
 
-        slide_info = slides.set_index("id")[["path", "level", "tile_extent_x", "tile_extent_y"]]
+        slide_info = slides.set_index("id")[
+            ["path", "level", "tile_extent_x", "tile_extent_y"]
+        ]
         tiles_enriched = tiles.join(slide_info, on="slide_id")
 
-        ds = ray.data.from_pandas(tiles_enriched).repartition(
-            target_num_rows_per_block=config.batch_size
-        )
-        ds = ds.map_batches(
-            read_tiles_batch,  # type: ignore[arg-type]
-            batch_format="pandas",
-            batch_size=config.batch_size,
-            memory=config.batch_size * 224 * 224 * 3 * 10,
-        )
-        ds = ds.map(
-            EmbedTiles,  # type: ignore[arg-type]
-            fn_constructor_args=(config.model,),
-            compute=ray.data.ActorPoolStrategy(
-                max_tasks_in_flight_per_actor=config.concurrency
+        ds = ray.data.from_arrow(
+            pa.Table.from_pandas(tiles_enriched, preserve_index=False)
+        ).repartition(target_num_rows_per_block=config.block_size)
+        ds = ds.with_column(
+            "tile",
+            read_slide_tiles(  # pyright: ignore[reportCallIssue]
+                col("path"),
+                col("x"),
+                col("y"),
+                col("tile_extent_x"),
+                col("tile_extent_y"),
+                col("level"),
             ),
-            memory=224 * 224 * 224 * 3 * 10,
+            num_cpus=1,
+            memory=4 * 1024**3,
+        )
+        ds = ds.drop_columns(["path", "level", "tile_extent_x", "tile_extent_y"])
+        ds = ds.map(
+            EmbedTiles,  # pyright: ignore[reportArgumentType]
+            fn_constructor_args=(config.model, config.concurrency),
+            compute=ray.data.ActorPoolStrategy(
+                max_size=4,
+                max_tasks_in_flight_per_actor=config.concurrency // 4,
+            ),
             max_concurrency=config.concurrency,
         )
 
         split_dir = Path(config.output_dir) / str(name)
         split_dir.mkdir(parents=True, exist_ok=True)
-        tiles_parquet_dir = split_dir / "tiles.parquet"
+        tiles_parquet_dir = split_dir / "tiles"
         if tiles_parquet_dir.exists():
             shutil.rmtree(tiles_parquet_dir)
 
         slides.to_parquet(split_dir / "slides.parquet", index=False)
-        ds.write_parquet(str(tiles_parquet_dir))
+        ds.write_parquet(str(tiles_parquet_dir), min_rows_per_file=config.rows_per_file)
 
         logger.log_artifacts(str(split_dir), str(name))
 
