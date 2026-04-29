@@ -23,9 +23,7 @@ BACKGROUND_LABEL = "background"
 
 
 def load_table(run_id: str, artifact_path: str, columns: list[str]) -> pa.Table:
-    print(
-        f"[load_table] downloading run={run_id[:8]} path={artifact_path}", flush=True
-    )
+    print(f"[load_table] downloading run={run_id[:8]} path={artifact_path}", flush=True)
     t0 = time.perf_counter()
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
@@ -215,9 +213,7 @@ def analyze(
 
     mlflow.log_metric(f"{split}_tile_count", len(table))
     for label in strata:
-        mlflow.log_metric(
-            f"{split}_tile_count_{label}", int((dominant == label).sum())
-        )
+        mlflow.log_metric(f"{split}_tile_count_{label}", int((dominant == label).sum()))
 
     # Class coverage columns: scalars (global) + one combined sweep + one combined histogram.
     class_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {}
@@ -246,7 +242,7 @@ def analyze(
 
     annotated_mask = dominant != BACKGROUND_LABEL
 
-    # Tissue column: per-class scalars + per-class plots + binary plots.
+    # Tissue column: per-class scalars + per-class sweep + binary and per-class histograms.
     col = TISSUE_COLUMN
     t0 = time.perf_counter()
     values = table.column(col).to_numpy(zero_copy_only=False)
@@ -263,9 +259,6 @@ def analyze(
         log_scalar_stats(f"{split}_{col}_class_{label}", stratum_values)
         tissue_sweeps[label] = threshold_sweep(stratum_values, n_curve_points)
         tissue_hists[label] = histogram_counts(stratum_values)
-    tissue_binary_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {
-        "all": tissue_sweeps["all"]
-    }
     tissue_binary_hists: dict[str, np.ndarray] = {}
     for label, mask in [
         ("annotated", annotated_mask),
@@ -273,18 +266,11 @@ def analyze(
     ]:
         if not mask.any():
             continue
-        stratum_values = values[mask]
-        tissue_binary_sweeps[label] = threshold_sweep(stratum_values, n_curve_points)
-        tissue_binary_hists[label] = histogram_counts(stratum_values)
+        tissue_binary_hists[label] = histogram_counts(values[mask])
     plot_threshold_sweep(
         f"{split} — {col} threshold sweep by dominant class",
         tissue_sweeps,
         output_dir / f"sweep_{col}.png",
-    )
-    plot_threshold_sweep(
-        f"{split} — {col} threshold sweep (annotated vs background)",
-        tissue_binary_sweeps,
-        output_dir / f"sweep_binary_{col}.png",
     )
     plot_histogram(
         f"{split} — {col} histogram by dominant class",
@@ -296,9 +282,11 @@ def analyze(
         tissue_binary_hists,
         output_dir / f"histogram_binary_{col}.png",
     )
-    print(f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s", flush=True)
+    print(
+        f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s", flush=True
+    )
 
-    # QC columns: global scalars + binary (annotated vs background) plots only.
+    # QC columns: global scalars + binary sweep + binary and per-class histograms.
     for col in QC_COLUMNS:
         t0 = time.perf_counter()
         values = table.column(col).to_numpy(zero_copy_only=False)
@@ -307,6 +295,7 @@ def analyze(
             "all": threshold_sweep(values, n_curve_points)
         }
         qc_binary_hists: dict[str, np.ndarray] = {}
+        qc_class_hists: dict[str, np.ndarray] = {}
         for label, mask in [
             ("annotated", annotated_mask),
             (BACKGROUND_LABEL, ~annotated_mask),
@@ -316,6 +305,11 @@ def analyze(
             stratum_values = values[mask]
             qc_binary_sweeps[label] = threshold_sweep(stratum_values, n_curve_points)
             qc_binary_hists[label] = histogram_counts(stratum_values)
+        for label in strata:
+            mask = dominant == label
+            if not mask.any():
+                continue
+            qc_class_hists[label] = histogram_counts(values[mask])
         plot_threshold_sweep(
             f"{split} — {col} threshold sweep (annotated vs background)",
             qc_binary_sweeps,
@@ -324,6 +318,11 @@ def analyze(
         plot_histogram(
             f"{split} — {col} histogram (annotated vs background)",
             qc_binary_hists,
+            output_dir / f"histogram_binary_{col}.png",
+        )
+        plot_histogram(
+            f"{split} — {col} histogram by dominant class",
+            qc_class_hists,
             output_dir / f"histogram_{col}.png",
         )
         print(
