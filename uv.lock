@@ -1752,7 +1752,7 @@ dependencies = [
 [[package]]
 name = "rationai-sdk"
 version = "0.1.0"
-source = { git = "https://gitlab.ics.muni.cz/rationai/infrastructure/rationai-sdk-python.git#a4d25084850cd26678783485dda87bbeed949492" }
+source = { git = "https://github.com/RationAI/rationai-sdk-python.git#3fb74c0f867432422dacde29ec5c0a4584af4830" }
 dependencies = [
     { name = "httpx" },
     { name = "lz4" },
@@ -2280,7 +2280,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.0.0" },
     { name = "rationai-masks" },
     { name = "rationai-mlkit", git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/mlkit.git" },
-    { name = "rationai-sdk", git = "https://gitlab.ics.muni.cz/rationai/infrastructure/rationai-sdk-python.git" },
+    { name = "rationai-sdk", git = "https://github.com/RationAI/rationai-sdk-python.git" },
     { name = "rationai-tiling", git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/tiling.git" },
     { name = "ratiopath", specifier = ">=1.2.0" },
     { name = "ray", specifier = ">=2.51.1" },
