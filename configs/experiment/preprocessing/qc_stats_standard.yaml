@@ -4,5 +4,20 @@ defaults:
   - /data: dataset
   - _self_
 
-qc_masks_path: ${project_path}/qc_masks
-qc_mpp: 8.0
+mpp: 8.0
+
+mask_source:
+  local_path: ${project_path}/qc_masks
+
+masks:
+  residual: "ResidualArtifactsAndCoverage_coverage_mask_{stem}.tiff"
+  folding: "FoldingFunction_folding_test_{stem}.tiff"
+  blur: "Piqe_piqe_median_activity_mask_{stem}.tiff"
+
+mlflow_artifact_path: qc_stats
+
+metadata:
+  run_name: QC Statistics ${dataset.name}
+  description: "Per-tile QC artifact coverage (blur, folding, residual)"
+  hyperparams:
+    mpp: ${mpp}

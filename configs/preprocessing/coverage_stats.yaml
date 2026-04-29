@@ -1,0 +1,13 @@
+# @package _global_
+
+mpp: ???
+masks: ???
+mask_source: ???
+
+mlflow_artifact_path: coverage_stats
+
+metadata:
+  run_name: Coverage statistics ${dataset.name}
+  description: "Per-tile coverage from configured masks at ${mpp} MPP."
+  hyperparams:
+    mpp: ${mpp}

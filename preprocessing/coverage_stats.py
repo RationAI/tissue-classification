@@ -1,5 +1,6 @@
 import tempfile
 from pathlib import Path
+from typing import cast
 
 import hydra
 import mlflow
@@ -12,16 +13,9 @@ import pyarrow.parquet as pq
 import ray
 import tifffile
 from datasets import load_dataset
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
-
-
-QC_MASK_PREFIXES = {
-    "residual": "ResidualArtifactsAndCoverage_coverage_mask_",
-    "folding": "FoldingFunction_folding_test_",
-    "blur": "Piqe_piqe_median_activity_mask_",
-}
 
 
 def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
@@ -43,6 +37,22 @@ def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> p
     )
     dataset = load_dataset("parquet", data_files=local_path, split="train")
     return dataset.select_columns(columns).data.table
+
+
+def resolve_mask_dir(mask_source: DictConfig) -> Path:
+    if "local_path" in mask_source:
+        return Path(mask_source.local_path)
+    if "mlflow_run_id" in mask_source:
+        return Path(
+            mlflow.artifacts.download_artifacts(
+                run_id=mask_source.mlflow_run_id,
+                artifact_path=mask_source.artifact_path,
+            )
+        )
+    raise ValueError(
+        "mask_source must contain either 'local_path' or "
+        "'mlflow_run_id' + 'artifact_path'"
+    )
 
 
 def sat_coverage(
@@ -72,9 +82,9 @@ def process_slide(
     mask_paths: dict[str, str],
     tile_extent: int,
     tile_mpp: float,
-    qc_mpp: float,
+    mask_mpp: float,
 ) -> pd.DataFrame:
-    scale = tile_mpp / qc_mpp
+    scale = tile_mpp / mask_mpp
     tm_extent = max(1, round(tile_extent * scale))
     roi_offset = tm_extent // 4
     roi_extent = max(1, tm_extent // 2)
@@ -104,22 +114,32 @@ def process_slide(
     return result
 
 
-def add_qc_coverage(
+def add_coverage(
     slides: pd.DataFrame,
     tiles: pa.Table,
-    qc_mask_dir: Path,
-    qc_mpp: float,
+    mask_dir: Path,
+    masks: dict[str, str],
+    mask_mpp: float,
     output_path: Path,
 ) -> dict[str, float]:
-    """Dispatch per-slide QC coverage computation as Ray tasks.
+    """Dispatch per-slide coverage computation as Ray tasks.
 
     Writes per-slide results to `output_path` via a streaming ParquetWriter as each
-    Ray task finishes. Slides missing any of the three QC masks are skipped.
+    Ray task finishes. Slides missing any of the configured masks are skipped.
     Returns aggregate stats for metric logging.
+
+    Tiling emits slides interleaved across blocks. We dictionary-encode slide_id
+    and argsort the int indices to group row positions per slide — a full
+    string-column sort/take on 80M rows would overflow pyarrow's int32 string offsets.
     """
     slide_info = slides.set_index("id")[["path", "tile_extent_x", "mpp_x"]]
 
-    encoded = pc.dictionary_encode(tiles.column("slide_id"))
+    slide_id_col = tiles.column("slide_id")
+    if slide_id_col.null_count > 0:
+        raise ValueError(
+            f"tiles.slide_id contains {slide_id_col.null_count} null values"
+        )
+    encoded = pc.dictionary_encode(slide_id_col)
     if isinstance(encoded, pa.ChunkedArray):
         encoded = encoded.unify_dictionaries().combine_chunks()
     indices = encoded.indices.to_numpy(zero_copy_only=False)
@@ -151,8 +171,8 @@ def add_qc_coverage(
         tile_mpp = float(info["mpp_x"])
 
         mask_paths = {
-            name: str(qc_mask_dir / f"{prefix}{wsi_path.stem}.tiff")
-            for name, prefix in QC_MASK_PREFIXES.items()
+            name: str(mask_dir / template.format(stem=wsi_path.stem))
+            for name, template in masks.items()
         }
         if any(not Path(p).exists() for p in mask_paths.values()):
             missing_slides.append(slide_id)
@@ -167,24 +187,24 @@ def add_qc_coverage(
             }
         )
         futures.append(
-            process_slide.remote(slide_tiles, mask_paths, tile_extent, tile_mpp, qc_mpp)
+            process_slide.remote(
+                slide_tiles, mask_paths, tile_extent, tile_mpp, mask_mpp
+            )
         )
 
     if missing_slides:
         print(
-            f"Warning: {len(missing_slides)} slides had missing QC masks and were dropped"
+            f"Warning: {len(missing_slides)} slides had missing masks and were dropped"
         )
 
     if not futures:
         raise RuntimeError(
-            f"No QC masks matched any slide. Check qc_masks_path. "
+            f"No masks matched any slide. Check mask_source and mask templates. "
             f"Missing slides: {len(missing_slides)}"
         )
 
     cov_cols = [
-        f"{prefix}_{name}_coverage"
-        for name in QC_MASK_PREFIXES
-        for prefix in ("tile", "roi")
+        f"{prefix}_{name}_coverage" for name in masks for prefix in ("tile", "roi")
     ]
 
     writer: pq.ParquetWriter | None = None
@@ -219,12 +239,13 @@ def add_qc_coverage(
     }
 
 
-@with_cli_args(["+preprocessing=qc_stats"])
+@with_cli_args(["+preprocessing=coverage_stats"])
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
     tiling_run_id = config.dataset.mlflow_artifacts.tiling_run_id
-    qc_mask_dir = Path(config.qc_masks_path)
+    mask_dir = resolve_mask_dir(config.mask_source)
+    masks = cast("dict[str, str]", OmegaConf.to_container(config.masks, resolve=True))
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         for split_name in ("train", "test"):
@@ -238,8 +259,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             )
 
             output_path = Path(tmp_dir) / f"{split_name}_tiles.parquet"
-            stats = add_qc_coverage(
-                slides, tiles, qc_mask_dir, config.qc_mpp, output_path
+            stats = add_coverage(
+                slides, tiles, mask_dir, masks, config.mpp, output_path
             )
 
             mlflow.log_metric(f"{split_name}_tile_count", stats["tile_count"])

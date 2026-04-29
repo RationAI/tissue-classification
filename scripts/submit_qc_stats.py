@@ -11,7 +11,7 @@ submit_job(
         "git clone https://github.com/RationAI/tissue-classification workdir",
         "cd workdir",
         "uv sync",
-        "uv run -m preprocessing.qc_stats +experiment=...",
+        "uv run -m preprocessing.coverage_stats +experiment=...",
     ],
     storage=[storage.secure.DATA, storage.secure.PROJECTS],
 )
