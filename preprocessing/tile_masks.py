@@ -30,8 +30,8 @@ def process_slide(
     mask = tile_mask(
         scaled_tiles,
         tile_extent=(
-            slide["tile_extent_x"] // downsample,
-            slide["tile_extent_y"] // downsample,
+            slide["stride_x"] // downsample,
+            slide["stride_y"] // downsample,
         ),
         size=(
             ceil(slide["extent_x"] / downsample),
