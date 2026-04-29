@@ -8,10 +8,10 @@ submit_job(
     memory="64Gi",
     public=False,
     script=[
-        "git clone https://gitlab.ics.muni.cz/rationai/digital-pathology/pathology/tissue-classification.git workdir",
+        "git clone https://github.com/RationAI/tissue-classification.git workdir",
         "cd workdir",
         "uv sync",
-        "uv run -m preprocessing.tiling +experiment=...",
+        "uv run python -m preprocessing.tiling +experiment=...",
     ],
     storage=[storage.secure.DATA],
 )
