@@ -8,8 +8,8 @@ tiling_tiles_artifact_template: "{split}_split/tiles.parquet"
 tissue_tiles_artifact_template: "tile_stats/{split}_tiles.parquet"
 qc_tiles_artifact_template: "qc_stats/{split}_tiles.parquet"
 
-# Number of empirical-quantile sample points used to draw survival curves.
-survival_curve_points: 200
+# Number of sample points used to draw threshold sweep curves.
+survival_curve_points: 1000
 
 metadata:
   run_name: Threshold Stats ${dataset.name}
