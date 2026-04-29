@@ -134,6 +134,9 @@ def add_coverage(
     """
     slide_info = slides.set_index("id")[["path", "tile_extent_x", "mpp_x"]]
 
+    if len(tiles) == 0:
+        raise ValueError("tiles table is empty")
+
     slide_id_col = tiles.column("slide_id")
     if slide_id_col.null_count > 0:
         raise ValueError(
