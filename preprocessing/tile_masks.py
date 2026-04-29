@@ -73,6 +73,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     ]
 
     with TemporaryDirectory() as output_dir:
+        Path(output_dir, "outlines").mkdir()
         process_items(
             items,
             process_item=process_slide,
