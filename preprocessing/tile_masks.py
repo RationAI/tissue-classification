@@ -5,10 +5,11 @@ from typing import Any
 import hydra
 import mlflow
 import pandas as pd
-import pyvips
 import ray
+import torch
 from omegaconf import DictConfig
-from rationai.masks import process_items, tile_mask, write_big_tiff
+from rationai.masks import process_items
+from rationai.masks.mask_builders import ScalarMaskBuilder
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 
@@ -17,27 +18,26 @@ from rationai.mlkit.lightning.loggers import MLFlowLogger
 def process_slide(
     item: tuple[dict[str, Any], pd.DataFrame],
     output_dir: str,
-    downsample: int,
 ) -> None:
     slide, slide_tiles = item
 
-    mask = tile_mask(
-        slide_tiles,
-        tile_extent=(slide["tile_extent_x"], slide["tile_extent_y"]),
-        size=(slide["extent_x"], slide["extent_y"]),
+    builder = ScalarMaskBuilder(
+        save_dir=output_dir,
+        filename=Path(slide["path"]).stem,
+        extent_x=slide["extent_x"],
+        extent_y=slide["extent_y"],
+        mpp_x=slide["mpp_x"],
+        mpp_y=slide["mpp_y"],
+        extent_tile=slide["tile_extent_x"],
+        stride=slide["stride_x"],
     )
 
-    width, height = mask.size
-    vips_image = pyvips.Image.new_from_memory(
-        data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
-    ).resize(1.0 / downsample)
+    xs = torch.tensor(slide_tiles["x"].values)
+    ys = torch.tensor(slide_tiles["y"].values)
+    data = torch.ones(len(slide_tiles), 1)
 
-    write_big_tiff(
-        image=vips_image,
-        path=Path(output_dir, f"{Path(slide['path']).stem}.tiff"),
-        mpp_x=slide["mpp_x"] * downsample,
-        mpp_y=slide["mpp_y"] * downsample,
-    )
+    builder.update(data, xs, ys)
+    builder.save()
 
 
 @with_cli_args(["+preprocessing=tile_masks"])
@@ -77,10 +77,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         process_items(
             items,
             process_item=process_slide,
-            fn_kwargs={
-                "output_dir": output_dir,
-                "downsample": config.downsample,
-            },
+            fn_kwargs={"output_dir": output_dir},
             max_concurrent=config.max_concurrent,
         )
 
