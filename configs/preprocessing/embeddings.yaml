@@ -2,9 +2,9 @@
 
 model: ???
 output_dir: ${project_dir}/embeddings
-concurrency: 1024
-block_size: 2048
-rows_per_file: 65536
+concurrency: 512
+block_size: 128
+rows_per_file: 5000
 
 metadata:
   run_name: "Embeddings: ${model}"
