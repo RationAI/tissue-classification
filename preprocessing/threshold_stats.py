@@ -55,7 +55,7 @@ def scalar_stats(values: np.ndarray) -> dict[str, float]:
     }
 
 
-HISTOGRAM_BIN_EDGES = np.linspace(0.0, 1.0, 11)
+HISTOGRAM_BIN_EDGES = np.linspace(0.0, 1.0, 21)
 
 
 def threshold_sweep(values: np.ndarray, n_points: int) -> tuple[np.ndarray, np.ndarray]:
@@ -286,14 +286,14 @@ def analyze(
         f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s", flush=True
     )
 
-    # QC columns: global scalars + binary sweep + binary and per-class histograms.
+    # QC columns: global scalars + combined sweep + binary and per-class histograms.
+    qc_combined_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for col in QC_COLUMNS:
         t0 = time.perf_counter()
         values = table.column(col).to_numpy(zero_copy_only=False)
         log_scalar_stats(f"{split}_{col}", values)
-        qc_binary_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {
-            "all": threshold_sweep(values, n_curve_points)
-        }
+        short_name = col.removeprefix("roi_").removesuffix("_coverage")
+        qc_combined_sweeps[short_name] = threshold_sweep(values, n_curve_points)
         qc_binary_hists: dict[str, np.ndarray] = {}
         qc_class_hists: dict[str, np.ndarray] = {}
         for label, mask in [
@@ -302,19 +302,12 @@ def analyze(
         ]:
             if not mask.any():
                 continue
-            stratum_values = values[mask]
-            qc_binary_sweeps[label] = threshold_sweep(stratum_values, n_curve_points)
-            qc_binary_hists[label] = histogram_counts(stratum_values)
+            qc_binary_hists[label] = histogram_counts(values[mask])
         for label in strata:
             mask = dominant == label
             if not mask.any():
                 continue
             qc_class_hists[label] = histogram_counts(values[mask])
-        plot_threshold_sweep(
-            f"{split} — {col} threshold sweep (annotated vs background)",
-            qc_binary_sweeps,
-            output_dir / f"sweep_{col}.png",
-        )
         plot_histogram(
             f"{split} — {col} histogram (annotated vs background)",
             qc_binary_hists,
@@ -329,6 +322,11 @@ def analyze(
             f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s",
             flush=True,
         )
+    plot_threshold_sweep(
+        f"{split} — QC coverage threshold sweep",
+        qc_combined_sweeps,
+        output_dir / "sweep_qc.png",
+    )
 
 
 @with_cli_args(["+preprocessing=threshold_stats"])
