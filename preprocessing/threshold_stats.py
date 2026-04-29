@@ -247,29 +247,29 @@ def analyze(
     t0 = time.perf_counter()
     values = table.column(col).to_numpy(zero_copy_only=False)
     log_scalar_stats(f"{split}_{col}", values)
-    tissue_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {
+    tissue_hists: dict[str, np.ndarray] = {}
+    tissue_binary_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {
         "all": threshold_sweep(values, n_curve_points)
     }
-    tissue_hists: dict[str, np.ndarray] = {}
+    tissue_binary_hists: dict[str, np.ndarray] = {}
     for label in strata:
         mask = dominant == label
         if not mask.any():
             continue
-        stratum_values = values[mask]
-        log_scalar_stats(f"{split}_{col}_class_{label}", stratum_values)
-        tissue_sweeps[label] = threshold_sweep(stratum_values, n_curve_points)
-        tissue_hists[label] = histogram_counts(stratum_values)
-    tissue_binary_hists: dict[str, np.ndarray] = {}
+        log_scalar_stats(f"{split}_{col}_class_{label}", values[mask])
+        tissue_hists[label] = histogram_counts(values[mask])
     for label, mask in [
         ("annotated", annotated_mask),
         (BACKGROUND_LABEL, ~annotated_mask),
     ]:
         if not mask.any():
             continue
-        tissue_binary_hists[label] = histogram_counts(values[mask])
+        stratum_values = values[mask]
+        tissue_binary_sweeps[label] = threshold_sweep(stratum_values, n_curve_points)
+        tissue_binary_hists[label] = histogram_counts(stratum_values)
     plot_threshold_sweep(
-        f"{split} — {col} threshold sweep by dominant class",
-        tissue_sweeps,
+        f"{split} — {col} threshold sweep (annotated vs background)",
+        tissue_binary_sweeps,
         output_dir / f"sweep_{col}.png",
     )
     plot_histogram(
