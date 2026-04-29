@@ -1,4 +1,3 @@
-from math import ceil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -22,29 +21,19 @@ def process_slide(
 ) -> None:
     slide, slide_tiles = item
 
-    scaled_tiles = slide_tiles.assign(
-        x=slide_tiles["x"] // downsample,
-        y=slide_tiles["y"] // downsample,
-    )
-
     mask = tile_mask(
-        scaled_tiles,
-        tile_extent=(
-            slide["stride_x"] // downsample,
-            slide["stride_y"] // downsample,
-        ),
-        size=(
-            ceil(slide["extent_x"] / downsample),
-            ceil(slide["extent_y"] / downsample),
-        ),
+        slide_tiles,
+        tile_extent=(slide["tile_extent_x"], slide["tile_extent_y"]),
+        size=(slide["extent_x"], slide["extent_y"]),
     )
 
     width, height = mask.size
+    vips_image = pyvips.Image.new_from_memory(
+        data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
+    ).resize(1.0 / downsample)
 
     write_big_tiff(
-        image=pyvips.Image.new_from_memory(
-            data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
-        ),
+        image=vips_image,
         path=Path(output_dir, f"{Path(slide['path']).stem}.tiff"),
         mpp_x=slide["mpp_x"] * downsample,
         mpp_y=slide["mpp_y"] * downsample,
