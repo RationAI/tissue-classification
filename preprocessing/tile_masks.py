@@ -4,12 +4,11 @@ from typing import Any
 
 import hydra
 import mlflow
-import numpy as np
 import pandas as pd
 import pyvips
 import ray
 from omegaconf import DictConfig
-from rationai.masks import process_items, tile_mask, write_big_tiff
+from rationai.masks import process_items, write_big_tiff
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 
@@ -22,13 +21,13 @@ def process_slide(
     slide, slide_tiles = item
     filename = f"{Path(slide['path']).stem}.tiff"
 
-    mask = tile_mask(
-        slide_tiles,
-        tile_extent=(slide["tile_extent_x"], slide["tile_extent_y"]),
-        size=(slide["extent_x"], slide["extent_y"]),
-    )
+    img = pyvips.Image.black(int(slide["extent_x"]), int(slide["extent_y"]))
+    te_x = int(slide["tile_extent_x"])
+    te_y = int(slide["tile_extent_y"])
+    for _, row in slide_tiles.iterrows():
+        img.draw_rect([255], int(row["x"]), int(row["y"]), te_x, te_y, fill=False)
     write_big_tiff(
-        pyvips.Image.new_from_array(np.array(mask)),
+        img,
         Path(output_dir, "outlines", filename),
         mpp_x=slide["mpp_x"],
         mpp_y=slide["mpp_y"],
