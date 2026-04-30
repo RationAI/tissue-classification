@@ -3,7 +3,7 @@
 mpp: ???
 disk_factor: ???
 
-max_concurrent: 8
+max_concurrent: 1
 mlflow_artifact_path: tissue_masks
 
 metadata:
