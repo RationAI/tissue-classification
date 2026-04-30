@@ -6,7 +6,6 @@ import httpx
 import hydra
 import mlflow.artifacts
 import pandas as pd
-import pyarrow as pa
 import ray
 from omegaconf import DictConfig
 from rationai import AsyncClient
@@ -44,16 +43,16 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     for name in ["train", "test"]:
         folder = Path(mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=f"{name}_split"))
         slides = pd.read_parquet(folder / "slides.parquet")
-        tiles = pd.read_parquet(folder / "tiles.parquet")
 
-        slide_info = slides.set_index("id")[
-            ["path", "level", "tile_extent_x", "tile_extent_y"]
-        ]
-        tiles_enriched = tiles.join(slide_info, on="slide_id")
+        slide_info = (
+            slides.set_index("id")[["path", "level", "tile_extent_x", "tile_extent_y"]]
+            .to_dict("index")
+        )
 
-        ds = ray.data.from_arrow(
-            pa.Table.from_pandas(tiles_enriched, preserve_index=False)
-        ).repartition(target_num_rows_per_block=config.block_size)
+        ds = ray.data.read_parquet(str(folder / "tiles.parquet")).map(
+            lambda row, si: {**row, **si[row["slide_id"]]},
+            fn_kwargs={"si": slide_info},
+        )
         ds = ds.with_column(
             "tile",
             read_slide_tiles(  # pyright: ignore[reportCallIssue]
