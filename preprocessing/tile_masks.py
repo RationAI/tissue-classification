@@ -4,7 +4,6 @@ from typing import Any
 
 import hydra
 import mlflow
-import numpy as np
 import pandas as pd
 import pyvips
 import ray
@@ -18,11 +17,16 @@ from rationai.mlkit.lightning.loggers import MLFlowLogger
 
 @ray.remote(max_calls=1)
 def process_slide(
-    item: tuple[dict[str, Any], pd.DataFrame],
+    slide: dict[str, Any],
     output_dir: str,
     tile_percentage_cols: list[str],
+    tiles_path: str,
 ) -> None:
-    slide, slide_tiles = item
+    slide_tiles = pd.read_parquet(
+        tiles_path,
+        columns=["x", "y", *tile_percentage_cols],
+        filters=[("slide_id", "==", slide["id"])],
+    )
     filename = f"{Path(slide['path']).stem}.tiff"
 
     for percentage_col in tile_percentage_cols:
@@ -48,9 +52,19 @@ def process_slide(
         tile_extent=(slide["tile_extent_x"], slide["tile_extent_y"]),
         size=(slide["extent_x"], slide["extent_y"]),
     )
+    width, height = mask.size
+    mask_bytes = mask.tobytes()
+    del mask
+
     write_big_tiff(
-        pyvips.Image.new_from_array(np.array(mask)),
-        Path(output_dir, "outlines", filename),
+        image=pyvips.Image.new_from_memory(
+            data=mask_bytes,
+            width=width,
+            height=height,
+            bands=1,
+            format="uchar",
+        ),
+        path=Path(output_dir, "outlines", filename),
         mpp_x=slide["mpp_x"],
         mpp_y=slide["mpp_y"],
     )
@@ -63,32 +77,18 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     tiling_run_id = config.dataset.mlflow_artifacts.tiling_run_id
     tile_percentage_cols: list[str] = list(config.tile_percentage_cols)
 
-    slides = pd.read_parquet(
-        mlflow.artifacts.download_artifacts(
-            run_id=tiling_run_id,
-            artifact_path=config.slides_artifact_path,
-        )
+    slides_path = mlflow.artifacts.download_artifacts(
+        run_id=tiling_run_id,
+        artifact_path=config.slides_artifact_path,
     )
-    tiles = pd.read_parquet(
-        mlflow.artifacts.download_artifacts(
-            run_id=tiling_run_id,
-            artifact_path=config.tiles_artifact_path,
-        ),
-        columns=["slide_id", "x", "y", *tile_percentage_cols],
+    tiles_path = mlflow.artifacts.download_artifacts(
+        run_id=tiling_run_id,
+        artifact_path=config.tiles_artifact_path,
     )
+    slides = pd.read_parquet(slides_path)
 
-    tiles_by_slide = {
-        slide_id: group.drop(columns="slide_id")
-        for slide_id, group in tiles.groupby("slide_id")
-    }
-
-    items: list[tuple[dict[str, Any], pd.DataFrame]] = [
-        (
-            {str(k): v for k, v in slide.to_dict().items()},
-            tiles_by_slide.get(
-                slide["id"], pd.DataFrame(columns=["x", "y", *tile_percentage_cols])
-            ),
-        )
+    items: list[dict[str, Any]] = [
+        {str(k): v for k, v in slide.to_dict().items()}
         for _, slide in slides.iterrows()
     ]
 
@@ -100,6 +100,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             fn_kwargs={
                 "output_dir": output_dir,
                 "tile_percentage_cols": tile_percentage_cols,
+                "tiles_path": tiles_path,
             },
             max_concurrent=config.max_concurrent,
         )
