@@ -41,15 +41,21 @@ class EmbedTiles:
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
     run_id = config.dataset.mlflow_artifacts.tiling_run_id
     for name in ["train", "test"]:
-        folder = Path(mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=f"{name}_split"))
+        folder = Path(
+            mlflow.artifacts.download_artifacts(
+                run_id=run_id, artifact_path=f"{name}_split"
+            )
+        )
         slides = pd.read_parquet(folder / "slides.parquet")
 
-        slide_info = (
-            slides.set_index("id")[["path", "level", "tile_extent_x", "tile_extent_y"]]
-            .to_dict("index")
-        )
+        slide_info = slides.set_index("id")[
+            ["path", "level", "tile_extent_x", "tile_extent_y"]
+        ].to_dict("index")
 
-        ds = ray.data.read_parquet(str(folder / "tiles.parquet")).map(
+        ds = ray.data.read_parquet(
+            str(folder / "tiles.parquet"),
+            ray_remote_args={"memory": 8 * 1024**3},
+        ).map(
             lambda row, si: {**row, **si[row["slide_id"]]},
             fn_kwargs={"si": slide_info},
         )
@@ -94,5 +100,8 @@ if __name__ == "__main__":
     ctx.enable_rich_progress_bars = True
     ctx.use_ray_tqdm = False
 
-    with ray.init(runtime_env={"excludes": [".git", ".venv"]}):
+    with ray.init(
+        runtime_env={"excludes": [".git", ".venv"]},
+        object_store_memory=16 * 1024**3,
+    ):
         main()
