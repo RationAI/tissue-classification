@@ -17,22 +17,6 @@ from ratiopath.tiling.read_slide_tiles import read_slide_tiles
 from ray.data.expressions import col
 
 
-class JoinSlideInfo:
-    def __init__(self, slide_info: dict) -> None:
-        self.slide_info = slide_info
-        self.count = 0
-        self.start = time.monotonic()
-
-    def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
-        if self.count == 0:
-            print(f"[JoinSlideInfo] first row at t={time.monotonic() - self.start:.2f}s")
-        self.count += 1
-        if self.count % 50000 == 0:
-            elapsed = time.monotonic() - self.start
-            print(f"[JoinSlideInfo] {self.count} rows in {elapsed:.1f}s ({self.count / elapsed:.0f} rows/s)")
-        return {**row, **self.slide_info[row["slide_id"]]}
-
-
 class EmbedTiles:
     def __init__(self, model: str, concurrency: int) -> None:
         self.model = model
@@ -97,8 +81,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             ray_remote_args={"memory": 8 * 1024**3},
             override_num_blocks=num_blocks,
         ).map(
-            JoinSlideInfo,  # pyright: ignore[reportArgumentType]
-            fn_constructor_args=(slide_info,),
+            lambda row, si: {**row, **si[row["slide_id"]]},
+            fn_kwargs={"si": slide_info},
         )
         ds = ds.with_column(
             "tile",
