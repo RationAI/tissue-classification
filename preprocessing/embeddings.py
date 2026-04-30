@@ -99,6 +99,7 @@ if __name__ == "__main__":
     ctx = ray.data.DataContext.get_current()
     ctx.enable_rich_progress_bars = True
     ctx.use_ray_tqdm = False
+    ctx.target_max_block_size = 64 * 1024 * 1024
 
     with ray.init(
         runtime_env={"excludes": [".git", ".venv"]},
