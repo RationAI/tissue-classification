@@ -23,15 +23,20 @@ class EmbedTiles:
         self.client = AsyncClient(
             limits=httpx.Limits(
                 max_connections=concurrency, max_keepalive_connections=concurrency
-            )
+            ),
+            timeout=200,
         )
         self.count = 0
+        self.in_flight = 0
+        self.first_row_logged = False
         self.start = time.monotonic()
         print(f"[EmbedTiles] actor initialized, model={model}, concurrency={concurrency}")
 
     async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
-        if self.count == 0:
+        if not self.first_row_logged:
+            self.first_row_logged = True
             print(f"[EmbedTiles] first row at t={time.monotonic() - self.start:.2f}s")
+        self.in_flight += 1
         t0 = time.monotonic()
         embedding = (
             (await self.client.models.embed_image(self.model, row["tile"]))
@@ -40,9 +45,10 @@ class EmbedTiles:
         )
         latency = time.monotonic() - t0
         self.count += 1
-        if self.count % 100 == 0:
+        self.in_flight -= 1
+        if self.count % 50 == 0:
             elapsed = time.monotonic() - self.start
-            print(f"[EmbedTiles] {self.count} embeddings in {elapsed:.1f}s ({self.count / elapsed:.1f}/s, last latency={latency * 1000:.0f}ms)")
+            print(f"[EmbedTiles] {self.count} done in {elapsed:.1f}s ({self.count / elapsed:.1f}/s, in_flight={self.in_flight}, latency={latency * 1000:.0f}ms)")
         del row["tile"]
         row["embedding"] = embedding
         return row
@@ -94,8 +100,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 col("tile_extent_y"),
                 col("level"),
             ),
-            num_cpus=0.25,
-            memory=1 * 1024**3,
+            num_cpus=1,
+            memory=4 * 1024**3,
         )
         ds = ds.drop_columns(["path", "level", "tile_extent_x", "tile_extent_y"])
         ds = ds.map(
@@ -132,6 +138,6 @@ if __name__ == "__main__":
 
     with ray.init(
         runtime_env={"excludes": [".git", ".venv"]},
-        object_store_memory=32 * 1024**3,
+        object_store_memory=16 * 1024**3,
     ):
         main()
