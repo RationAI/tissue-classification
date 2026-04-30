@@ -110,8 +110,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 col("tile_extent_y"),
                 col("level"),
             ),
-            num_cpus=1,
-            memory=4 * 1024**3,
+            num_cpus=0.25,
+            memory=1 * 1024**3,
         )
         ds = ds.drop_columns(["path", "level", "tile_extent_x", "tile_extent_y"])
         ds = ds.map(
@@ -148,6 +148,6 @@ if __name__ == "__main__":
 
     with ray.init(
         runtime_env={"excludes": [".git", ".venv"]},
-        object_store_memory=16 * 1024**3,
+        object_store_memory=32 * 1024**3,
     ):
         main()
