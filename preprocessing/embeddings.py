@@ -6,6 +6,7 @@ import httpx
 import hydra
 import mlflow.artifacts
 import pandas as pd
+import pyarrow.dataset as pads
 import ray
 from omegaconf import DictConfig
 from rationai import AsyncClient
@@ -52,9 +53,14 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             ["path", "level", "tile_extent_x", "tile_extent_y"]
         ].to_dict("index")
 
+        tiles_path = folder / "tiles.parquet"
+        num_rows = pads.dataset(str(tiles_path), format="parquet").count_rows()
+        num_blocks = max(1, num_rows // config.block_size)
+
         ds = ray.data.read_parquet(
-            str(folder / "tiles.parquet"),
+            str(tiles_path),
             ray_remote_args={"memory": 8 * 1024**3},
+            override_num_blocks=num_blocks,
         ).map(
             lambda row, si: {**row, **si[row["slide_id"]]},
             fn_kwargs={"si": slide_info},
