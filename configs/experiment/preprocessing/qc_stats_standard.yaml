@@ -4,7 +4,7 @@ defaults:
   - /data: dataset
   - _self_
 
-mpp: 8.0
+mpp: 2.0
 
 mask_source:
   local_path: ${project_path}/qc_masks
