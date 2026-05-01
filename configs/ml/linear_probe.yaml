@@ -1,0 +1,40 @@
+# @package _global_
+
+defaults:
+  - /class_mapping: standard
+
+mode: fit
+
+embed_dim: ???
+embeddings_run_id: ???
+
+trainer:
+  _target_: rationai.mlkit.lightning.Trainer
+  max_epochs: 30
+  accelerator: auto
+  devices: 1
+  log_every_n_steps: 50
+
+data:
+  _target_: ml.data.embeddings_datamodule.EmbeddingsDataModule
+  train_dir: ${project_path}/embeddings/${embeddings_run_id}/train/tiles
+  test_dir: ${project_path}/embeddings/${embeddings_run_id}/test/tiles
+  class_names: ${class_mapping.class_names}
+  batch_size: 1024
+  num_workers: 4
+  val_fraction: 0.1
+
+model:
+  _target_: ml.models.linear_probe.LinearProbe
+  embed_dim: ${embed_dim}
+  num_classes: ${len:${class_mapping.class_names}}
+  lr: 1e-3
+  weight_decay: 0.0
+
+metadata:
+  run_name: "Linear probe (embed_dim=${embed_dim})"
+  description: Linear probe on cached embeddings
+  hyperparams:
+    embed_dim: ${embed_dim}
+    lr: ${model.lr}
+    batch_size: ${data.batch_size}
