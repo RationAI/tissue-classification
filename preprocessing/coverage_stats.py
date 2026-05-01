@@ -92,8 +92,9 @@ def process_slide(
             mask = mask[..., 0]
 
         mask_h, mask_w = mask.shape
-        sat = np.zeros((mask_h + 1, mask_w + 1), dtype=np.int32)
-        sat[1:, 1:] = mask > 0
+        sat = np.zeros((mask_h + 1, mask_w + 1), dtype=np.int64)
+        np.greater(mask, 0, out=sat[1:, 1:], casting="unsafe")
+        del mask
         np.cumsum(sat, axis=0, out=sat)
         np.cumsum(sat, axis=1, out=sat)
 
@@ -103,6 +104,7 @@ def process_slide(
         result[f"roi_{name}_coverage"] = sat_coverage(
             sat, mask_h, mask_w, ys + roi_offset, xs + roi_offset, roi_extent
         )
+        del sat
 
     return result
 
