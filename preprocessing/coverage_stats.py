@@ -28,8 +28,10 @@ def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> p
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
     )
-    dataset = load_dataset("parquet", data_files=local_path, split="train")
-    return dataset.select_columns(columns).data.table
+    dataset = load_dataset(
+        "parquet", data_files=local_path, split="train", columns=columns
+    )
+    return dataset.data.table
 
 
 def resolve_mask_dir(mask_source: DictConfig) -> Path:
