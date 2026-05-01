@@ -18,13 +18,6 @@ from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 
 
-def load_parquet_artifact(run_id: str, artifact_path: str) -> pd.DataFrame:
-    local_path = mlflow.artifacts.download_artifacts(
-        run_id=run_id, artifact_path=artifact_path
-    )
-    return pd.read_parquet(local_path)
-
-
 def load_tiles_columns(run_id: str, artifact_path: str, columns: list[str]) -> pa.Table:
     """Load a tiles parquet column subset as a memory-mapped Arrow table.
 
@@ -252,9 +245,11 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         for split_name in ("train", "test"):
-            slides = load_parquet_artifact(
-                tiling_run_id, f"{split_name}_split/slides.parquet"
+            local_path = mlflow.artifacts.download_artifacts(
+                run_id=tiling_run_id,
+                artifact_path=f"{split_name}_split/slides.parquet",
             )
+            slides = pd.read_parquet(local_path)
             tiles = load_tiles_columns(
                 tiling_run_id,
                 f"{split_name}_split/tiles.parquet",
