@@ -1,6 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, cast
 
 import hydra
 import mlflow
@@ -86,7 +86,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     )
     slides = pd.read_parquet(slides_path)
 
-    items = slides.to_dict(orient="records")
+    items = cast(list[dict[str, Any]], slides.to_dict(orient="records"))
 
     with TemporaryDirectory() as output_dir:
         Path(output_dir, "outlines").mkdir()
