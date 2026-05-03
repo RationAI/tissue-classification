@@ -86,7 +86,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     )
     slides = pd.read_parquet(slides_path)
 
-    items = cast(list[dict[str, Any]], slides.to_dict(orient="records"))
+    items = cast("list[dict[str, Any]]", slides.to_dict(orient="records"))
 
     with TemporaryDirectory() as output_dir:
         Path(output_dir, "outlines").mkdir()
