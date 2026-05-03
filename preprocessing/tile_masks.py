@@ -6,16 +6,15 @@ import hydra
 import mlflow
 import pandas as pd
 import pyvips
-import ray
 import torch
 from omegaconf import DictConfig
-from rationai.masks import process_items, tile_mask, write_big_tiff
+from rationai.masks import tile_mask, write_big_tiff
 from rationai.masks.mask_builders import ScalarMaskBuilder
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
+from tqdm import tqdm
 
 
-@ray.remote(max_calls=1)
 def process_slide(
     slide: dict[str, Any],
     output_dir: str,
@@ -87,23 +86,17 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     )
     slides = pd.read_parquet(slides_path)
 
-    items: list[dict[str, Any]] = [
-        {str(k): v for k, v in slide.to_dict().items()}
-        for _, slide in slides.iterrows()
-    ]
+    items = slides.to_dict(orient="records")
 
     with TemporaryDirectory() as output_dir:
         Path(output_dir, "outlines").mkdir()
-        process_items(
-            items,
-            process_item=process_slide,
-            fn_kwargs={
-                "output_dir": output_dir,
-                "tile_percentage_cols": tile_percentage_cols,
-                "tiles_path": tiles_path,
-            },
-            max_concurrent=config.max_concurrent,
-        )
+        for slide in tqdm(items):
+            process_slide(
+                slide,
+                output_dir=output_dir,
+                tile_percentage_cols=tile_percentage_cols,
+                tiles_path=tiles_path,
+            )
 
         logger.log_artifacts(
             local_dir=output_dir, artifact_path=config.mlflow_artifact_path
@@ -111,6 +104,4 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
 
 if __name__ == "__main__":
-    ray.init()
     main()
-    ray.shutdown()
