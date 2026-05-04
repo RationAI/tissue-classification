@@ -36,25 +36,26 @@ def derive_labels(
     )
 
 
-def collapse_rare_labels(labels: np.ndarray, n_folds: int) -> np.ndarray:
-    """Collapse rare labels into 'background' to prevent StratifiedKFold from crashing.
+def build_stratification_labels(labels: np.ndarray, n_folds: int) -> np.ndarray:
+    """Return a copy of labels with rare classes collapsed to 'background'.
 
     StratifiedKFold requires at least n_folds samples per class. Classes with fewer
-    samples than that are relabeled as 'background' so the split can proceed. A warning
-    is printed listing every affected class and its tile count.
+    samples than that are relabeled as 'background' so the split can proceed. The
+    returned array is intended solely as the stratification target — the caller
+    should keep the original labels array for storage and reporting.
     """
     unique, counts = np.unique(labels, return_counts=True)
     rare = unique[counts < n_folds]
+    strat = labels.copy()
     if len(rare) > 0:
         print(
             f"WARNING: {len(rare)} label(s) have fewer than {n_folds} tiles and will "
-            f"be collapsed into 'background' for stratification: "
+            f"be collapsed into 'background' for stratification only: "
             + ", ".join(f"{cls}({counts[unique == cls][0]})" for cls in rare),
             flush=True,
         )
-        labels = labels.copy()
-        labels[np.isin(labels, rare)] = "background"
-    return labels
+        strat[np.isin(strat, rare)] = "background"
+    return strat
 
 
 def assign_folds(labels: np.ndarray, n_folds: int, random_state: int) -> np.ndarray:
@@ -68,6 +69,7 @@ def assign_folds(labels: np.ndarray, n_folds: int, random_state: int) -> np.ndar
 
 def log_fold_statistics(
     labels: np.ndarray,
+    stratification_labels: np.ndarray,
     tissue_props: np.ndarray,
     slide_ids: np.ndarray,
     folds: np.ndarray,
@@ -95,6 +97,15 @@ def log_fold_statistics(
     mlflow.log_table(
         data=label_dist,
         artifact_file="fold_statistics/label_distribution.json",
+    )
+
+    strat_df = pd.DataFrame({"fold": folds, "label": stratification_labels})
+    strat_dist = (
+        strat_df.groupby(["fold", "label"]).size().unstack(fill_value=0).reset_index()
+    )
+    mlflow.log_table(
+        data=strat_dist,
+        artifact_file="fold_statistics/stratification_label_distribution.json",
     )
 
     print(f"Total tiles: {total}")
@@ -127,12 +138,23 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
     labels, tissue_props, slide_ids = derive_labels(dataset, roi_cols)
 
-    labels = collapse_rare_labels(labels, n_folds=config.n_folds)
+    stratification_labels = build_stratification_labels(
+        labels, n_folds=config.n_folds
+    )
     folds = assign_folds(
-        labels, n_folds=config.n_folds, random_state=config.random_state
+        stratification_labels,
+        n_folds=config.n_folds,
+        random_state=config.random_state,
     )
 
-    log_fold_statistics(labels, tissue_props, slide_ids, folds, n_folds=config.n_folds)
+    log_fold_statistics(
+        labels,
+        stratification_labels,
+        tissue_props,
+        slide_ids,
+        folds,
+        n_folds=config.n_folds,
+    )
 
     dataset = dataset.add_column("label", labels.tolist())
     dataset = dataset.add_column("tissue_prop", tissue_props.tolist())
