@@ -29,10 +29,11 @@ def derive_labels(
     label_ds = dataset.select_columns(["slide_id", *roi_cols]).map(
         compute, batched=True
     )
+    table = label_ds.data.table
     return (
-        np.array(label_ds["label"], dtype=object),
-        np.array(label_ds["tissue_prop"]),
-        np.array(label_ds["slide_id"]),
+        table.column("label").to_numpy(zero_copy_only=False),
+        table.column("tissue_prop").to_numpy(zero_copy_only=False),
+        table.column("slide_id").to_numpy(zero_copy_only=False),
     )
 
 
