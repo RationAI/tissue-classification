@@ -10,7 +10,7 @@ import pandas as pd
 import pyarrow.dataset as pads
 import ray
 from omegaconf import DictConfig
-from rationai import AsyncClient
+from rationai import AsyncClient  # type: ignore[attr-defined]
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from ratiopath.tiling.read_slide_tiles import read_slide_tiles
@@ -30,7 +30,9 @@ class EmbedTiles:
         self.in_flight = 0
         self.first_row_logged = False
         self.start = time.monotonic()
-        print(f"[EmbedTiles] actor initialized, model={model}, concurrency={concurrency}")
+        print(
+            f"[EmbedTiles] actor initialized, model={model}, concurrency={concurrency}"
+        )
 
     async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
         if not self.first_row_logged:
@@ -48,7 +50,9 @@ class EmbedTiles:
         self.in_flight -= 1
         if self.count % 50 == 0:
             elapsed = time.monotonic() - self.start
-            print(f"[EmbedTiles] {self.count} done in {elapsed:.1f}s ({self.count / elapsed:.1f}/s, in_flight={self.in_flight}, latency={latency * 1000:.0f}ms)")
+            print(
+                f"[EmbedTiles] {self.count} done in {elapsed:.1f}s ({self.count / elapsed:.1f}/s, in_flight={self.in_flight}, latency={latency * 1000:.0f}ms)"
+            )
         del row["tile"]
         row["embedding"] = embedding
         return row
@@ -80,7 +84,9 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         tiles_path = folder / "tiles.parquet"
         num_rows = pads.dataset(str(tiles_path), format="parquet").count_rows()
         num_blocks = max(1, num_rows // config.block_size)
-        print(f"[main] {num_rows} tile rows, {num_blocks} blocks (parquet metadata in {time.monotonic() - t:.1f}s)")
+        print(
+            f"[main] {num_rows} tile rows, {num_blocks} blocks (parquet metadata in {time.monotonic() - t:.1f}s)"
+        )
 
         ds = ray.data.read_parquet(
             str(tiles_path),
