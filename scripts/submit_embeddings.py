@@ -6,8 +6,8 @@ submit_job(
     username=...,
     public=False,
     cpu=8,
-    memory="32Gi",
-    shm="16Gi",
+    memory="64Gi",
+    shm="24Gi",
     script=[
         "git clone https://github.com/RationAI/tissue-classification.git workdir",
         "cd workdir",
