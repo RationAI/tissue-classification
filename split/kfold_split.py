@@ -57,16 +57,16 @@ def build_stratification_labels(labels: np.ndarray, n_folds: int) -> np.ndarray:
         )
         strat[np.isin(strat, rare)] = "background"
 
-    background_count = int((strat == "background").sum())
-    if background_count < n_folds:
-        rare_breakdown = (
-            ", ".join(f"{cls}({counts[unique == cls][0]})" for cls in rare) or "<none>"
-        )
-        raise ValueError(
-            f"After collapsing rare classes, the 'background' group has "
-            f"{background_count} tile(s), which is fewer than n_folds={n_folds}. "
-            f"StratifiedKFold cannot proceed. Collapsed classes: {rare_breakdown}."
-        )
+        background_count = int((strat == "background").sum())
+        if background_count < n_folds:
+            rare_breakdown = ", ".join(
+                f"{cls}({counts[unique == cls][0]})" for cls in rare
+            )
+            raise ValueError(
+                f"After collapsing rare classes, the 'background' group has "
+                f"{background_count} tile(s), which is fewer than n_folds={n_folds}. "
+                f"StratifiedKFold cannot proceed. Collapsed classes: {rare_breakdown}."
+            )
     return strat
 
 
