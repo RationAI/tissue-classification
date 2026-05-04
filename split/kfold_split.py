@@ -147,15 +147,23 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     if not roi_cols:
         raise ValueError("No roi_coverage_* columns found in the dataset.")
 
+    print("deriving labels...", flush=True)
     labels, tissue_props, slide_ids = derive_labels(dataset, roi_cols)
+    print(f"  done: {len(labels):,} tiles", flush=True)
 
+    print("building stratification labels...", flush=True)
     stratification_labels = build_stratification_labels(labels, n_folds=config.n_folds)
+    print("  done", flush=True)
+
+    print("assigning folds...", flush=True)
     folds = assign_folds(
         stratification_labels,
         n_folds=config.n_folds,
         random_state=config.random_state,
     )
+    print("  done", flush=True)
 
+    print("logging fold statistics...", flush=True)
     log_fold_statistics(
         labels,
         stratification_labels,
@@ -164,17 +172,26 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         folds,
         n_folds=config.n_folds,
     )
+    print("  done", flush=True)
 
+    print("adding label column...", flush=True)
     dataset = dataset.add_column("label", labels.tolist())
+    print("adding tissue_prop column...", flush=True)
     dataset = dataset.add_column("tissue_prop", tissue_props.tolist())
+    print("adding fold column...", flush=True)
     dataset = dataset.add_column("fold", folds.tolist())
+    print("  done adding columns", flush=True)
 
     with TemporaryDirectory() as output_dir:
         out_path = str(Path(output_dir) / "kfold_tiles.parquet")
+        print(f"writing parquet to {out_path}...", flush=True)
         dataset.to_parquet(out_path)
+        print("  done writing parquet", flush=True)
+        print("uploading artifacts to mlflow...", flush=True)
         logger.log_artifacts(
             local_dir=output_dir, artifact_path=config.mlflow_artifact_path
         )
+        print("  done uploading", flush=True)
 
 
 if __name__ == "__main__":
