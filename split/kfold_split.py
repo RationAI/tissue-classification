@@ -138,9 +138,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
     labels, tissue_props, slide_ids = derive_labels(dataset, roi_cols)
 
-    stratification_labels = build_stratification_labels(
-        labels, n_folds=config.n_folds
-    )
+    stratification_labels = build_stratification_labels(labels, n_folds=config.n_folds)
     folds = assign_folds(
         stratification_labels,
         n_folds=config.n_folds,
