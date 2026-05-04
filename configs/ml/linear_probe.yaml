@@ -15,14 +15,17 @@ trainer:
   devices: 1
   log_every_n_steps: 50
 
+val_fold: 0
+
 data:
   _target_: ml.data.embeddings_datamodule.EmbeddingsDataModule
   train_dir: ${project_path}/embeddings/${embeddings_run_id}/train/tiles
   test_dir: ${project_path}/embeddings/${embeddings_run_id}/test/tiles
   class_names: ${class_mapping.class_names}
+  val_fold: ${val_fold}
   batch_size: 1024
   num_workers: 4
-  val_fraction: 0.1
+  tissue_prop_min: 0.0
 
 model:
   _target_: ml.models.linear_probe.LinearProbe
@@ -38,3 +41,4 @@ metadata:
     embed_dim: ${embed_dim}
     lr: ${model.lr}
     batch_size: ${data.batch_size}
+    val_fold: ${val_fold}

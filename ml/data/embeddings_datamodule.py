@@ -1,92 +1,75 @@
 from pathlib import Path
 
 import lightning as pl
-import numpy as np
-import pyarrow.dataset as pads
-import torch
-from torch.utils.data import DataLoader, Dataset
-
-
-class EmbeddingsDataset(Dataset):
-    def __init__(
-        self,
-        parquet_dir: str | Path,
-        class_names: list[str],
-        coverage_prefix: str = "roi_coverage",
-    ) -> None:
-        ds = pads.dataset(str(parquet_dir), format="parquet")
-        cols = ["embedding"] + [f"{coverage_prefix}_{c}" for c in class_names]
-        table = ds.to_table(columns=cols)
-
-        self.embeddings = np.stack(
-            table.column("embedding").to_numpy(zero_copy_only=False)
-        )
-        coverages = np.stack(
-            [table.column(f"{coverage_prefix}_{c}").to_numpy() for c in class_names],
-            axis=1,
-        )
-        # hard labels via argmax over coverages; swap for soft targets if needed
-        self.labels = coverages.argmax(axis=1)
-
-    def __len__(self) -> int:
-        return len(self.labels)
-
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
-        return (
-            torch.from_numpy(self.embeddings[idx]).float(),
-            torch.tensor(self.labels[idx], dtype=torch.long),
-        )
+from datasets import load_dataset
+from torch.utils.data import DataLoader
 
 
 class EmbeddingsDataModule(pl.LightningDataModule):
+    """Linear-probe data module backed by HuggingFace datasets.
+
+    Expects parquet files with columns: `embedding` (list[float]), `label` (str),
+    `fold` (int, train side only), and `tissue_prop` (float).
+    """
+
     def __init__(
         self,
         train_dir: str,
         test_dir: str,
         class_names: list[str],
+        val_fold: int = 0,
         batch_size: int = 1024,
         num_workers: int = 4,
-        val_fraction: float = 0.1,
-        coverage_prefix: str = "roi_coverage",
+        tissue_prop_min: float = 0.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
+        self.class_to_idx = {c: i for i, c in enumerate(class_names)}
+
+    def _load(self, parquet_dir: str) -> "Dataset":  # type: ignore[name-defined]
+        files = sorted(str(p) for p in Path(parquet_dir).glob("*.parquet"))
+        ds = load_dataset("parquet", data_files=files, split="train")
+        if self.hparams.tissue_prop_min > 0:
+            ds = ds.filter(
+                lambda r: r["tissue_prop"] >= self.hparams.tissue_prop_min
+            )
+        ds = ds.map(lambda r: {"y": self.class_to_idx[r["label"]]})
+        return ds
 
     def setup(self, stage: str) -> None:
-        full_train = EmbeddingsDataset(
-            self.hparams.train_dir,
-            self.hparams.class_names,
-            self.hparams.coverage_prefix,
+        train_full = self._load(self.hparams.train_dir)
+        self.train_set = train_full.filter(
+            lambda r: r["fold"] != self.hparams.val_fold
+        ).with_format("torch", columns=["embedding", "y"])
+        self.val_set = train_full.filter(
+            lambda r: r["fold"] == self.hparams.val_fold
+        ).with_format("torch", columns=["embedding", "y"])
+        self.test_set = self._load(self.hparams.test_dir).with_format(
+            "torch", columns=["embedding", "y"]
         )
-        n_val = int(len(full_train) * self.hparams.val_fraction)
-        n_train = len(full_train) - n_val
-        self.train_set, self.val_set = torch.utils.data.random_split(
-            full_train, [n_train, n_val], generator=torch.Generator().manual_seed(0)
-        )
-        self.test_set = EmbeddingsDataset(
-            self.hparams.test_dir,
-            self.hparams.class_names,
-            self.hparams.coverage_prefix,
+
+    @staticmethod
+    def _collate(batch: list[dict]) -> tuple:
+        import torch
+
+        x = torch.stack([b["embedding"].float() for b in batch])
+        y = torch.stack([b["y"].long() for b in batch])
+        return x, y
+
+    def _loader(self, ds, shuffle: bool) -> DataLoader:
+        return DataLoader(
+            ds,
+            batch_size=self.hparams.batch_size,
+            shuffle=shuffle,
+            num_workers=self.hparams.num_workers,
+            collate_fn=self._collate,
         )
 
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.train_set,
-            batch_size=self.hparams.batch_size,
-            shuffle=True,
-            num_workers=self.hparams.num_workers,
-        )
+        return self._loader(self.train_set, shuffle=True)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.val_set,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
-        )
+        return self._loader(self.val_set, shuffle=False)
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.test_set,
-            batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
-        )
+        return self._loader(self.test_set, shuffle=False)
