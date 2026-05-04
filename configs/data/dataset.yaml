@@ -13,8 +13,8 @@ dataset:
     train_split_filename: "split_mapping/train_split.csv"
     test_split_filename: "split_mapping/test_split.csv"
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
-    tissue_stats_run_id: "f1ac1097405347f7991238c52f5a0ec5"
-    qc_stats_run_id: "ba7612b85afb4f98b89a32fc937cc3b6"
+    tissue_stats_run_id: "ec5076fe792b447882302864d234bc82"
+    qc_stats_run_id: "c490d045708b4042832511bb81a8d167"
 
   exclusions:
     bad_slides:
