@@ -59,8 +59,7 @@ def build_stratification_labels(labels: np.ndarray, n_folds: int) -> np.ndarray:
     background_count = int((strat == "background").sum())
     if background_count < n_folds:
         rare_breakdown = (
-            ", ".join(f"{cls}({counts[unique == cls][0]})" for cls in rare)
-            or "<none>"
+            ", ".join(f"{cls}({counts[unique == cls][0]})" for cls in rare) or "<none>"
         )
         raise ValueError(
             f"After collapsing rare classes, the 'background' group has "
