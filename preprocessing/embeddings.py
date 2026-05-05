@@ -23,19 +23,24 @@ def filter_tiles(folder: Path, config: DictConfig, split_name: str) -> Path:
     """Drop tiles that will never be used for training and return the parquet path to use.
 
     Removes tiles where all annotation class coverages are zero (unlabeled) and
-    tiles with zero tissue coverage. Uses PyArrow predicate pushdown so only
-    matching rows are materialised — safe for 80M-row datasets.
+    tiles with zero tissue coverage. Uses PyArrow predicate pushdown so the full
+    80M-row input is never loaded into memory — only the post-filter result is
+    materialised, so peak memory scales with the number of tiles that pass the
+    annotation filter, not the total tile count.
     """
     tiles_path = folder / "tiles.parquet"
     tiles_ds = pads.dataset(str(tiles_path), format="parquet")
     original_count = tiles_ds.count_rows()
 
     ann_cols = [f.name for f in tiles_ds.schema if f.name.startswith("tile_coverage_")]
-    ann_filter = None
-    if ann_cols:
-        ann_filter = pads.field(ann_cols[0]) > 0
-        for c in ann_cols[1:]:
-            ann_filter = ann_filter | (pads.field(c) > 0)
+    if not ann_cols:
+        raise RuntimeError(
+            "No tile_coverage_* columns found in tiles parquet. "
+            "Check that the tiling run used a class mapping with annotations."
+        )
+    ann_filter = pads.field(ann_cols[0]) > 0
+    for c in ann_cols[1:]:
+        ann_filter = ann_filter | (pads.field(c) > 0)
 
     tiles_table = tiles_ds.to_table(filter=ann_filter)
     ann_count = len(tiles_table)
@@ -43,6 +48,11 @@ def filter_tiles(folder: Path, config: DictConfig, split_name: str) -> Path:
         f"[filter_tiles] {split_name}: annotation filter"
         f" {original_count} → {ann_count} ({ann_count / original_count:.1%} kept)"
     )
+    if ann_count == 0:
+        raise RuntimeError(
+            f"All {original_count} tiles were filtered out by annotation coverage. "
+            "Check that the tiling run used the correct class mapping and annotation sources."
+        )
 
     tissue_local = mlflow.artifacts.download_artifacts(
         run_id=config.tile_filters.tissue_stats_run_id,
@@ -154,6 +164,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
         ds = ray.data.read_parquet(
             str(tiles_path),
+            columns=["slide_id", "x", "y"],
             ray_remote_args={"memory": 8 * 1024**3},
             override_num_blocks=num_blocks,
         ).map(
@@ -179,7 +190,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             fn_constructor_args=(config.model, config.concurrency),
             compute=ray.data.ActorPoolStrategy(
                 max_size=4,
-                max_tasks_in_flight_per_actor=config.concurrency // 4,
+                max_tasks_in_flight_per_actor=max(1, config.concurrency // 4),
             ),
             max_concurrency=config.concurrency,
         )

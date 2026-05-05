@@ -1,5 +1,0 @@
-# @package _global_
-
-defaults:
-  - /data: dataset
-  - _self_
