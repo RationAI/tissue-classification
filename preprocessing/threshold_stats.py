@@ -90,26 +90,21 @@ def compute_dominant_class(table: pa.Table, class_names: list[str]) -> np.ndarra
 
 
 def join_inputs(
-    tiling_run_id: str,
-    tiling_artifact: str,
-    tissue_run_id: str,
-    tissue_artifact: str,
+    filter_tiles_run_id: str,
+    filter_tiles_artifact: str,
     qc_run_id: str,
     qc_artifact: str,
     class_names: list[str],
 ) -> pa.Table:
-    tiling_columns = ["slide_id", "x", "y"] + [
+    filter_tiles_columns = ["slide_id", "x", "y", TISSUE_COLUMN] + [
         f"roi_coverage_{cls}" for cls in class_names
     ]
-    tissue_columns = ["slide_id", "x", "y", TISSUE_COLUMN]
     qc_columns = ["slide_id", "x", "y", *QC_COLUMNS]
 
-    tiling = load_table(tiling_run_id, tiling_artifact, tiling_columns)
-    tissue = load_table(tissue_run_id, tissue_artifact, tissue_columns)
+    filtered = load_table(filter_tiles_run_id, filter_tiles_artifact, filter_tiles_columns)
     qc = load_table(qc_run_id, qc_artifact, qc_columns)
     print(
-        f"[join_inputs] loaded rows: tiling={tiling.num_rows} "
-        f"tissue={tissue.num_rows} qc={qc.num_rows}",
+        f"[join_inputs] loaded rows: filtered={filtered.num_rows} qc={qc.num_rows}",
         flush=True,
     )
 
@@ -118,19 +113,17 @@ def join_inputs(
     # should have matched fully). DuckDB returns the correct row count.
     t0 = time.perf_counter()
     con = duckdb.connect()
-    con.register("tiling_t", tiling)
-    con.register("tissue_t", tissue)
+    con.register("filtered_t", filtered)
     con.register("qc_t", qc)
     joined = con.execute(
         """
         SELECT *
-        FROM tiling_t
-        INNER JOIN tissue_t USING (slide_id, x, y)
+        FROM filtered_t
         INNER JOIN qc_t USING (slide_id, x, y)
         """
     ).to_arrow_table()
     print(
-        f"[join_inputs] duckdb 3-way join: {joined.num_rows} rows in "
+        f"[join_inputs] duckdb join: {joined.num_rows} rows in "
         f"{time.perf_counter() - t0:.1f}s",
         flush=True,
     )
@@ -342,12 +335,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         for split in ("train", "test"):
             table = join_inputs(
-                tiling_run_id=config.dataset.mlflow_artifacts.tiling_run_id,
-                tiling_artifact=config.tiling_tiles_artifact_template.format(
-                    split=split
-                ),
-                tissue_run_id=config.dataset.mlflow_artifacts.tissue_stats_run_id,
-                tissue_artifact=config.tissue_tiles_artifact_template.format(
+                filter_tiles_run_id=config.dataset.mlflow_artifacts.filter_tiles_run_id,
+                filter_tiles_artifact=config.filter_tiles_artifact_template.format(
                     split=split
                 ),
                 qc_run_id=config.dataset.mlflow_artifacts.qc_stats_run_id,
