@@ -9,7 +9,6 @@ import hydra
 import mlflow.artifacts
 import pandas as pd
 import pyarrow.dataset as pads
-import pyarrow.parquet as pq
 import ray
 from omegaconf import DictConfig
 from rationai import AsyncClient  # type: ignore[attr-defined]
@@ -17,66 +16,6 @@ from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from ratiopath.tiling.read_slide_tiles import read_slide_tiles
 from ray.data.expressions import col
-
-
-def filter_tiles(folder: Path, config: DictConfig, split_name: str) -> Path:
-    """Drop tiles that will never be used for training and return the parquet path to use.
-
-    Removes tiles where all annotation class coverages are zero (unlabeled) and
-    tiles with zero tissue coverage. Uses PyArrow predicate pushdown so the full
-    80M-row input is never loaded into memory — only the post-filter result is
-    materialised, so peak memory scales with the number of tiles that pass the
-    annotation filter, not the total tile count.
-    """
-    tiles_path = folder / "tiles.parquet"
-    tiles_ds = pads.dataset(str(tiles_path), format="parquet")
-    original_count = tiles_ds.count_rows()
-
-    ann_cols = [f.name for f in tiles_ds.schema if f.name.startswith("tile_coverage_")]
-    if not ann_cols:
-        raise RuntimeError(
-            "No tile_coverage_* columns found in tiles parquet. "
-            "Check that the tiling run used a class mapping with annotations."
-        )
-    ann_filter = pads.field(ann_cols[0]) > 0
-    for c in ann_cols[1:]:
-        ann_filter = ann_filter | (pads.field(c) > 0)
-
-    tiles_table = tiles_ds.to_table(filter=ann_filter)
-    ann_count = len(tiles_table)
-    print(
-        f"[filter_tiles] {split_name}: annotation filter"
-        f" {original_count} → {ann_count} ({ann_count / original_count:.1%} kept)"
-    )
-    if ann_count == 0:
-        raise RuntimeError(
-            f"All {original_count} tiles were filtered out by annotation coverage. "
-            "Check that the tiling run used the correct class mapping and annotation sources."
-        )
-
-    tissue_local = mlflow.artifacts.download_artifacts(
-        run_id=config.tile_filters.tissue_stats_run_id,
-        artifact_path=f"{config.tile_filters.tissue_stats_artifact_path}/{split_name}_tiles.parquet",
-    )
-    tissue_table = pads.dataset(tissue_local, format="parquet").to_table(
-        columns=["slide_id", "x", "y"],
-        filter=pads.field("tile_tissue_coverage") > 0,
-    )
-    tiles_table = tiles_table.join(
-        tissue_table, keys=["slide_id", "x", "y"], join_type="inner"
-    )
-    tissue_count = len(tiles_table)
-    print(
-        f"[filter_tiles] {split_name}: tissue filter"
-        f" {ann_count} → {tissue_count} ({tissue_count / ann_count:.1%} kept)"
-    )
-
-    if tissue_count == original_count:
-        return tiles_path
-
-    filtered_path = folder / "tiles_filtered.parquet"
-    pq.write_table(tiles_table, str(filtered_path))
-    return filtered_path
 
 
 class EmbedTiles:
@@ -136,31 +75,26 @@ class EmbedTiles:
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    run_id = config.dataset.mlflow_artifacts.tiling_run_id
     for name in ["train", "test"]:
-        t = time.monotonic()
-        print(f"[main] === split={name} ===")
-        folder = Path(
+        split_folder = Path(
             mlflow.artifacts.download_artifacts(
-                run_id=run_id, artifact_path=f"{name}_split"
+                run_id=config.dataset.mlflow_artifacts.tiling_run_id,
+                artifact_path=f"{name}_split",
             )
         )
-        print(f"[main] artifacts downloaded in {time.monotonic() - t:.1f}s")
-
-        t = time.monotonic()
-        slides = pd.read_parquet(folder / "slides.parquet")
+        slides = pd.read_parquet(split_folder / "slides.parquet")
         slide_info = slides.set_index("id")[
             ["path", "level", "tile_extent_x", "tile_extent_y"]
         ].to_dict("index")
-        print(f"[main] loaded {len(slide_info)} slides in {time.monotonic() - t:.1f}s")
 
-        t = time.monotonic()
-        tiles_path = filter_tiles(folder, config, name)
+        tiles_path = Path(
+            mlflow.artifacts.download_artifacts(
+                run_id=config.dataset.mlflow_artifacts.filter_tiles_run_id,
+                artifact_path=f"filter_tiles/{name}_tiles.parquet",
+            )
+        )
         num_rows = pads.dataset(str(tiles_path), format="parquet").count_rows()
         num_blocks = max(1, num_rows // config.block_size)
-        print(
-            f"[main] {num_rows} tile rows, {num_blocks} blocks (filter+metadata in {time.monotonic() - t:.1f}s)"
-        )
 
         ds = ray.data.read_parquet(
             str(tiles_path),
