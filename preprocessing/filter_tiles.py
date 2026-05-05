@@ -47,7 +47,8 @@ def filter_split(
     ann_count = len(tiles_table)
     print(
         f"[{split_name}] annotation filter: "
-        f"{original_count} → {ann_count} ({ann_count / original_count:.1%} kept)"
+        f"{original_count} → {ann_count} ({ann_count / original_count:.1%} kept)",
+        flush=True,
     )
     if ann_count == 0:
         raise RuntimeError(
@@ -65,23 +66,20 @@ def filter_split(
         for f in tissue_ds.schema
         if f.name in {"slide_id", "x", "y"} or f.name.endswith("_tissue_coverage")
     ]
-    survivor_slides = tiles_table.column("slide_id").combine_chunks().unique()
     t = time.monotonic()
-    print(
-        f"[{split_name}] reading tissue stats: columns={tissue_cols}, "
-        f"{len(survivor_slides)} surviving slides"
-    )
+    print(f"[{split_name}] reading tissue stats: columns={tissue_cols}", flush=True)
     tissue_table = tissue_ds.to_table(
         columns=tissue_cols,
-        filter=(pads.field(tissue_column) > 0)
-        & pads.field("slide_id").isin(survivor_slides),
+        filter=pads.field(tissue_column) > 0,
     )
     print(
         f"[{split_name}] tissue read: {len(tissue_table)} rows "
-        f"in {time.monotonic() - t:.1f}s"
+        f"in {time.monotonic() - t:.1f}s",
+        flush=True,
     )
 
     t = time.monotonic()
+    print(f"[{split_name}] joining…", flush=True)
     filtered = tiles_table.join(
         tissue_table, keys=["slide_id", "x", "y"], join_type="inner"
     )
@@ -89,12 +87,16 @@ def filter_split(
     print(
         f"[{split_name}] tissue join: "
         f"{ann_count} → {final_count} ({final_count / ann_count:.1%} kept) "
-        f"in {time.monotonic() - t:.1f}s"
+        f"in {time.monotonic() - t:.1f}s",
+        flush=True,
     )
 
     t = time.monotonic()
     pq.write_table(filtered, str(output_path))
-    print(f"[{split_name}] wrote {output_path.name} in {time.monotonic() - t:.1f}s")
+    print(
+        f"[{split_name}] wrote {output_path.name} in {time.monotonic() - t:.1f}s",
+        flush=True,
+    )
     return {
         "original_count": original_count,
         "after_annotation": ann_count,
