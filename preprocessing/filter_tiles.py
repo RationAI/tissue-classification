@@ -56,15 +56,13 @@ def filter_split(
         artifact_path=f"{tissue_stats_artifact_path}/{split_name}_tiles.parquet",
     )
     tissue_ds = pads.dataset(tissue_local, format="parquet")
-    tissue_cols = [
-        f.name
-        for f in tissue_ds.schema
-        if f.name in {"slide_id", "x", "y"} or f.name.endswith("_tissue_coverage")
-    ]
-    tissue_table = tissue_ds.to_table(
-        columns=tissue_cols,
-        filter=pads.field(tissue_column) > 0,
-    )
+    tissue_schema_names = {f.name for f in tissue_ds.schema}
+    if tissue_column not in tissue_schema_names:
+        raise RuntimeError(
+            f"tissue_column '{tissue_column}' not found in tissue stats parquet. "
+            f"Available columns: {sorted(tissue_schema_names)}"
+        )
+    tissue_table = tissue_ds.to_table(filter=pads.field(tissue_column) > 0)
 
     tiles_df = tiles_table.to_pandas()
     tissue_df = tissue_table.to_pandas()
