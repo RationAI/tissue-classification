@@ -1,5 +1,4 @@
 import tempfile
-import time
 from pathlib import Path
 
 import hydra
@@ -46,11 +45,6 @@ def filter_split(
 
     tiles_table = tiles_ds.to_table(filter=ann_filter)
     ann_count = len(tiles_table)
-    print(
-        f"[{split_name}] annotation filter: "
-        f"{original_count} → {ann_count} ({ann_count / original_count:.1%} kept)",
-        flush=True,
-    )
     if ann_count == 0:
         raise RuntimeError(
             f"All {original_count} tiles dropped by annotation filter for {split_name}. "
@@ -67,20 +61,11 @@ def filter_split(
         for f in tissue_ds.schema
         if f.name in {"slide_id", "x", "y"} or f.name.endswith("_tissue_coverage")
     ]
-    t = time.monotonic()
-    print(f"[{split_name}] reading tissue stats: columns={tissue_cols}", flush=True)
     tissue_table = tissue_ds.to_table(
         columns=tissue_cols,
         filter=pads.field(tissue_column) > 0,
     )
-    print(
-        f"[{split_name}] tissue read: {len(tissue_table)} rows "
-        f"in {time.monotonic() - t:.1f}s",
-        flush=True,
-    )
 
-    t = time.monotonic()
-    print(f"[{split_name}] joining via pandas…", flush=True)
     tiles_df = tiles_table.to_pandas()
     tissue_df = tissue_table.to_pandas()
     del tiles_table, tissue_table
@@ -89,19 +74,8 @@ def filter_split(
     filtered = pa.Table.from_pandas(filtered_df, preserve_index=False)
     final_count = len(filtered)
     del filtered_df
-    print(
-        f"[{split_name}] tissue join: "
-        f"{ann_count} → {final_count} ({final_count / ann_count:.1%} kept) "
-        f"in {time.monotonic() - t:.1f}s",
-        flush=True,
-    )
 
-    t = time.monotonic()
     pq.write_table(filtered, str(output_path))
-    print(
-        f"[{split_name}] wrote {output_path.name} in {time.monotonic() - t:.1f}s",
-        flush=True,
-    )
     return {
         "original_count": original_count,
         "after_annotation": ann_count,
