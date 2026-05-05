@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import time
 from pathlib import Path
@@ -40,11 +41,24 @@ class EmbedTiles:
             print(f"[EmbedTiles] first row at t={time.monotonic() - self.start:.2f}s")
         self.in_flight += 1
         t0 = time.monotonic()
-        embedding = (
-            (await self.client.models.embed_image(self.model, row["tile"]))
-            .reshape(-1)
-            .tolist()
-        )
+        try:
+            last_exc: Exception | None = None
+            for attempt in range(3):
+                try:
+                    embedding = (
+                        (await self.client.models.embed_image(self.model, row["tile"]))
+                        .reshape(-1)
+                        .tolist()
+                    )
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < 2:
+                        await asyncio.sleep(2**attempt)
+            else:
+                raise RuntimeError("embed_image failed after 3 attempts") from last_exc
+        finally:
+            del row["tile"]
         latency = time.monotonic() - t0
         self.count += 1
         self.in_flight -= 1
@@ -53,7 +67,6 @@ class EmbedTiles:
             print(
                 f"[EmbedTiles] {self.count} done in {elapsed:.1f}s ({self.count / elapsed:.1f}/s, in_flight={self.in_flight}, latency={latency * 1000:.0f}ms)"
             )
-        del row["tile"]
         row["embedding"] = embedding
         return row
 
