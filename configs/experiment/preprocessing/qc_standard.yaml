@@ -4,5 +4,5 @@ defaults:
   - /data: dataset
   - _self_
 
-mask_mpp: 8.0
-sample_mpp: 16.0
+mask_mpp: 2.0
+sample_mpp: 8.0
