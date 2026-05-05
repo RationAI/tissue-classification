@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 from typing import cast
 
-import duckdb
 import hydra
 import matplotlib.pyplot as plt
 import mlflow
@@ -17,7 +16,6 @@ from rationai.mlkit.lightning.loggers import MLFlowLogger
 
 
 SCALAR_QUANTILES = (0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99)
-QC_COLUMNS = ("roi_residual_coverage", "roi_folding_coverage", "roi_blur_coverage")
 TISSUE_COLUMN = "roi_tissue_coverage"
 BACKGROUND_LABEL = "background"
 
@@ -89,45 +87,15 @@ def compute_dominant_class(table: pa.Table, class_names: list[str]) -> np.ndarra
     return labels[np.where(has_class, dominant_idx, len(class_names))]
 
 
-def join_inputs(
-    filter_tiles_run_id: str,
-    filter_tiles_artifact: str,
-    qc_run_id: str,
-    qc_artifact: str,
+def load_filter_tiles(
+    run_id: str,
+    artifact: str,
     class_names: list[str],
 ) -> pa.Table:
-    filter_tiles_columns = ["slide_id", "x", "y", TISSUE_COLUMN] + [
+    columns = ["slide_id", "x", "y", TISSUE_COLUMN] + [
         f"roi_coverage_{cls}" for cls in class_names
     ]
-    qc_columns = ["slide_id", "x", "y", *QC_COLUMNS]
-
-    filtered = load_table(filter_tiles_run_id, filter_tiles_artifact, filter_tiles_columns)
-    qc = load_table(qc_run_id, qc_artifact, qc_columns)
-    print(
-        f"[join_inputs] loaded rows: filtered={filtered.num_rows} qc={qc.num_rows}",
-        flush=True,
-    )
-
-    # pyarrow's Table.join silently produces incorrect results on string-keyed
-    # joins at 10M+ rows (we observed 49M output from a 79M-row inner join that
-    # should have matched fully). DuckDB returns the correct row count.
-    t0 = time.perf_counter()
-    con = duckdb.connect()
-    con.register("filtered_t", filtered)
-    con.register("qc_t", qc)
-    joined = con.execute(
-        """
-        SELECT *
-        FROM filtered_t
-        INNER JOIN qc_t USING (slide_id, x, y)
-        """
-    ).to_arrow_table()
-    print(
-        f"[join_inputs] duckdb join: {joined.num_rows} rows in "
-        f"{time.perf_counter() - t0:.1f}s",
-        flush=True,
-    )
-    return joined
+    return load_table(run_id, artifact, columns)
 
 
 def plot_threshold_sweep(
@@ -146,6 +114,25 @@ def plot_threshold_sweep(
     ax.set_xlim(0, 1.02)
     ax.set_yscale("log")
     ax.legend(fontsize=8, loc="best")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=120)
+    plt.close(fig)
+
+
+def plot_class_coverage_sweep(
+    title: str,
+    thresholds: np.ndarray,
+    counts: np.ndarray,
+    output_path: Path,
+) -> None:
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(thresholds, counts, linewidth=1.5)
+    ax.set_xlabel("threshold")
+    ax.set_ylabel("count of tiles with coverage > threshold")
+    ax.set_title(title)
+    nonzero = np.where(counts > 0)[0]
+    x_max = float(thresholds[nonzero[-1]]) if len(nonzero) else 1.0
+    ax.set_xlim(0, min(x_max + 0.02, 1.0))
     fig.tight_layout()
     fig.savefig(output_path, dpi=120)
     plt.close(fig)
@@ -222,11 +209,13 @@ def analyze(
             f"{time.perf_counter() - t0:.1f}s",
             flush=True,
         )
-    plot_threshold_sweep(
-        f"{split} — ROI class coverage threshold sweep",
-        class_sweeps,
-        output_dir / "sweep_class_coverage.png",
-    )
+    for cls, (thresholds, counts) in class_sweeps.items():
+        plot_class_coverage_sweep(
+            f"{split} — ROI coverage: {cls}",
+            thresholds,
+            counts,
+            output_dir / f"sweep_class_coverage_{cls}.png",
+        )
     plot_histogram(
         f"{split} — ROI class coverage histogram",
         class_hists,
@@ -279,48 +268,6 @@ def analyze(
         f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s", flush=True
     )
 
-    # QC columns: global scalars + combined sweep + binary and per-class histograms.
-    qc_combined_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    for col in QC_COLUMNS:
-        t0 = time.perf_counter()
-        values = table.column(col).to_numpy(zero_copy_only=False)
-        log_scalar_stats(f"{split}_{col}", values)
-        short_name = col.removeprefix("roi_").removesuffix("_coverage")
-        qc_combined_sweeps[short_name] = threshold_sweep(values, n_curve_points)
-        qc_binary_hists: dict[str, np.ndarray] = {}
-        qc_class_hists: dict[str, np.ndarray] = {}
-        for label, mask in [
-            ("annotated", annotated_mask),
-            (BACKGROUND_LABEL, ~annotated_mask),
-        ]:
-            if not mask.any():
-                continue
-            qc_binary_hists[label] = histogram_counts(values[mask])
-        for label in strata:
-            mask = dominant == label
-            if not mask.any():
-                continue
-            qc_class_hists[label] = histogram_counts(values[mask])
-        plot_histogram(
-            f"{split} — {col} histogram (annotated vs background)",
-            qc_binary_hists,
-            output_dir / f"histogram_binary_{col}.png",
-        )
-        plot_histogram(
-            f"{split} — {col} histogram by dominant class",
-            qc_class_hists,
-            output_dir / f"histogram_{col}.png",
-        )
-        print(
-            f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s",
-            flush=True,
-        )
-    plot_threshold_sweep(
-        f"{split} — QC coverage threshold sweep",
-        qc_combined_sweeps,
-        output_dir / "sweep_qc.png",
-    )
-
 
 @with_cli_args(["+preprocessing=threshold_stats"])
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
@@ -334,13 +281,9 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         for split in ("train", "test"):
-            table = join_inputs(
-                filter_tiles_run_id=config.dataset.mlflow_artifacts.filter_tiles_run_id,
-                filter_tiles_artifact=config.filter_tiles_artifact_template.format(
-                    split=split
-                ),
-                qc_run_id=config.dataset.mlflow_artifacts.qc_stats_run_id,
-                qc_artifact=config.qc_tiles_artifact_template.format(split=split),
+            table = load_filter_tiles(
+                run_id=config.dataset.mlflow_artifacts.filter_tiles_run_id,
+                artifact=config.filter_tiles_artifact_template.format(split=split),
                 class_names=class_names,
             )
 

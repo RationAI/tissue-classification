@@ -14,7 +14,6 @@ dataset:
     test_split_filename: "split_mapping/test_split.csv"
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
     tissue_stats_run_id: "ec5076fe792b447882302864d234bc82"
-    qc_stats_run_id: "c490d045708b4042832511bb81a8d167"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
 
   exclusions:
