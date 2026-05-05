@@ -1,4 +1,5 @@
 import tempfile
+import time
 from pathlib import Path
 
 import hydra
@@ -58,20 +59,42 @@ def filter_split(
         run_id=tissue_stats_run_id,
         artifact_path=f"{tissue_stats_artifact_path}/{split_name}_tiles.parquet",
     )
-    tissue_table = pads.dataset(tissue_local, format="parquet").to_table(
-        filter=pads.field(tissue_column) > 0,
+    tissue_ds = pads.dataset(tissue_local, format="parquet")
+    tissue_cols = [
+        f.name
+        for f in tissue_ds.schema
+        if f.name in {"slide_id", "x", "y"} or f.name.endswith("_tissue_coverage")
+    ]
+    survivor_slides = tiles_table.column("slide_id").combine_chunks().unique()
+    t = time.monotonic()
+    print(
+        f"[{split_name}] reading tissue stats: columns={tissue_cols}, "
+        f"{len(survivor_slides)} surviving slides"
+    )
+    tissue_table = tissue_ds.to_table(
+        columns=tissue_cols,
+        filter=(pads.field(tissue_column) > 0)
+        & pads.field("slide_id").isin(survivor_slides),
+    )
+    print(
+        f"[{split_name}] tissue read: {len(tissue_table)} rows "
+        f"in {time.monotonic() - t:.1f}s"
     )
 
+    t = time.monotonic()
     filtered = tiles_table.join(
         tissue_table, keys=["slide_id", "x", "y"], join_type="inner"
     )
     final_count = len(filtered)
     print(
-        f"[{split_name}] tissue filter: "
-        f"{ann_count} → {final_count} ({final_count / ann_count:.1%} kept)"
+        f"[{split_name}] tissue join: "
+        f"{ann_count} → {final_count} ({final_count / ann_count:.1%} kept) "
+        f"in {time.monotonic() - t:.1f}s"
     )
 
+    t = time.monotonic()
     pq.write_table(filtered, str(output_path))
+    print(f"[{split_name}] wrote {output_path.name} in {time.monotonic() - t:.1f}s")
     return {
         "original_count": original_count,
         "after_annotation": ann_count,
