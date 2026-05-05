@@ -72,6 +72,11 @@ def filter_split(
     filtered = pa.Table.from_pandas(filtered_df, preserve_index=False)
     final_count = len(filtered)
     del filtered_df
+    if final_count == 0:
+        raise RuntimeError(
+            f"All {ann_count} annotation-passing tiles dropped by tissue filter for {split_name}. "
+            f"Check that tissue_column '{tissue_column}' is non-zero for at least some tiles."
+        )
 
     pq.write_table(filtered, str(output_path))
     return {
