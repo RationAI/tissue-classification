@@ -8,7 +8,6 @@ import httpx
 import hydra
 import mlflow.artifacts
 import pandas as pd
-import pyarrow.compute as pc
 import pyarrow.dataset as pads
 import pyarrow.parquet as pq
 import ray
@@ -36,7 +35,7 @@ def filter_tiles(folder: Path, config: DictConfig, split_name: str) -> Path:
     if ann_cols:
         ann_filter = pads.field(ann_cols[0]) > 0
         for c in ann_cols[1:]:
-            ann_filter = pc.or_(ann_filter, pads.field(c) > 0)
+            ann_filter = ann_filter | (pads.field(c) > 0)
 
     tiles_table = tiles_ds.to_table(filter=ann_filter)
     ann_count = len(tiles_table)
