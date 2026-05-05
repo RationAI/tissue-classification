@@ -5,6 +5,7 @@ from pathlib import Path
 import hydra
 import mlflow
 import mlflow.artifacts
+import pyarrow as pa
 import pyarrow.dataset as pads
 import pyarrow.parquet as pq
 from omegaconf import DictConfig
@@ -79,11 +80,15 @@ def filter_split(
     )
 
     t = time.monotonic()
-    print(f"[{split_name}] joining…", flush=True)
-    filtered = tiles_table.join(
-        tissue_table, keys=["slide_id", "x", "y"], join_type="inner"
-    )
+    print(f"[{split_name}] joining via pandas…", flush=True)
+    tiles_df = tiles_table.to_pandas()
+    tissue_df = tissue_table.to_pandas()
+    del tiles_table, tissue_table
+    filtered_df = tiles_df.merge(tissue_df, on=["slide_id", "x", "y"], how="inner")
+    del tiles_df, tissue_df
+    filtered = pa.Table.from_pandas(filtered_df, preserve_index=False)
     final_count = len(filtered)
+    del filtered_df
     print(
         f"[{split_name}] tissue join: "
         f"{ann_count} → {final_count} ({final_count / ann_count:.1%} kept) "
