@@ -14,6 +14,7 @@ dataset:
     test_split_filename: "split_mapping/test_split.csv"
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
     train_tiles_filename: "train_split/tiles.parquet"
+    tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
 
   exclusions:
     bad_slides:

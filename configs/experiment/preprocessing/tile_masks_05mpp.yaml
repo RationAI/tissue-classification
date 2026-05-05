@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - _self_
+
+slides_artifact_path: train_split/slides.parquet
+tiles_artifact_path: train_split/tiles.parquet
+tile_percentage_cols:
+  - tile_coverage_Nerve
+  - tile_coverage_Blood
+  - tile_coverage_Connective-Tissue
+  - tile_coverage_Fat
+  - tile_coverage_Epithelium
+  - tile_coverage_Muscle
+  - tile_coverage_Other
