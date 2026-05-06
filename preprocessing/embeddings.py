@@ -32,9 +32,6 @@ class EmbedTiles:
             ),
             timeout=200,
         )
-        self.count = 0
-        self.in_flight = 0
-        self.start = time.monotonic()
         print(
             f"[EmbedTiles] actor initialized, model={model}, concurrency={concurrency}"
         )
@@ -51,20 +48,10 @@ class EmbedTiles:
         )
 
     async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
-        self.in_flight += 1
-        t0 = time.monotonic()
         try:
             embedding = await self._embed(row["tile"])
         finally:
             del row["tile"]
-        latency = time.monotonic() - t0
-        self.count += 1
-        self.in_flight -= 1
-        if self.count % 50 == 0:
-            elapsed = time.monotonic() - self.start
-            print(
-                f"[EmbedTiles] {self.count} done in {elapsed:.1f}s ({self.count / elapsed:.1f}/s, in_flight={self.in_flight}, latency={latency * 1000:.0f}ms)"
-            )
         row["embedding"] = embedding
         return row
 
