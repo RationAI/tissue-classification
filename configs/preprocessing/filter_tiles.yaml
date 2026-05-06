@@ -1,0 +1,13 @@
+# @package _global_
+
+tissue_stats_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}
+tissue_stats_artifact_path: tissue_stats
+tissue_coverage_column: tile_tissue_coverage
+
+mlflow_artifact_path: filter_tiles
+
+metadata:
+  run_name: "Filter tiles ${dataset.name}"
+  description: "Drop tiles with no annotation coverage and no tile tissue coverage."
+  hyperparams:
+    tissue_coverage_column: ${tissue_coverage_column}
