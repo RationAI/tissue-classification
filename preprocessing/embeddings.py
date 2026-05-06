@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import time
 from pathlib import Path
@@ -15,12 +16,6 @@ from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from ratiopath.tiling.read_slide_tiles import read_slide_tiles
 from ray.data.expressions import col
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 
 class EmbedTiles:
@@ -32,29 +27,27 @@ class EmbedTiles:
             ),
             timeout=200,
         )
-        self._retryer = AsyncRetrying(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1, min=1, max=4),
-            retry=retry_if_exception_type(httpx.HTTPError),
-            reraise=True,
-        )
         print(
             f"[EmbedTiles] actor initialized, model={model}, concurrency={concurrency}"
         )
 
-    async def _embed_once(self, tile: Any) -> list[float]:
-        return (
-            (await self.client.models.embed_image(self.model, tile))
-            .reshape(-1)
-            .tolist()
-        )
-
-    async def _embed(self, tile: Any) -> list[float]:
-        return await self._retryer(self._embed_once, tile)
-
     async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
         try:
-            embedding = await self._embed(row["tile"])
+            last_exc: Exception | None = None
+            for attempt in range(3):
+                try:
+                    embedding = (
+                        (await self.client.models.embed_image(self.model, row["tile"]))
+                        .reshape(-1)
+                        .tolist()
+                    )
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < 2:
+                        await asyncio.sleep(2**attempt)
+            else:
+                raise RuntimeError("embed_image failed after 3 attempts") from last_exc
         finally:
             del row["tile"]
         row["embedding"] = embedding
