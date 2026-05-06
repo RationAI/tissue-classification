@@ -27,11 +27,20 @@ class EmbedTiles:
             ),
             timeout=200,
         )
+        self.count = 0
+        self.in_flight = 0
+        self.first_row_logged = False
+        self.start = time.monotonic()
         print(
             f"[EmbedTiles] actor initialized, model={model}, concurrency={concurrency}"
         )
 
     async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
+        if not self.first_row_logged:
+            self.first_row_logged = True
+            print(f"[EmbedTiles] first row at t={time.monotonic() - self.start:.2f}s")
+        self.in_flight += 1
+        t0 = time.monotonic()
         try:
             last_exc: Exception | None = None
             for attempt in range(3):
@@ -50,6 +59,14 @@ class EmbedTiles:
                 raise RuntimeError("embed_image failed after 3 attempts") from last_exc
         finally:
             del row["tile"]
+        latency = time.monotonic() - t0
+        self.count += 1
+        self.in_flight -= 1
+        if self.count % 50 == 0:
+            elapsed = time.monotonic() - self.start
+            print(
+                f"[EmbedTiles] {self.count} done in {elapsed:.1f}s ({self.count / elapsed:.1f}/s, in_flight={self.in_flight}, latency={latency * 1000:.0f}ms)"
+            )
         row["embedding"] = embedding
         return row
 
