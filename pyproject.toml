@@ -29,6 +29,7 @@ dependencies = [
     "einops>=0.8.0",
     "pyarrow>=19.0.1",
     "datasets>=4.0.0",
+    "tenacity>=9.0.0",
 ]
 
 [dependency-groups]
