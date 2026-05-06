@@ -5,7 +5,7 @@ submit_job(
     job_name="tissue-classification-threshold-stats",
     username=...,
     cpu=8,
-    memory="128Gi",
+    memory="32Gi",
     public=False,
     script=[
         "git clone https://github.com/RationAI/tissue-classification.git workdir",
