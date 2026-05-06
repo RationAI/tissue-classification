@@ -16,6 +16,7 @@ dataset:
     filter_tiles_run_id: "b51fa26332d84dad94dc6e97477ed061"
     tissue_stats_run_id: "ec5076fe792b447882302864d234bc82"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
+    tissue_stats_run_id: "16ae2d003d88471b924e5f332415232a"
 
   exclusions:
     bad_slides:
