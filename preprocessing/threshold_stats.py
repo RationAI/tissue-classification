@@ -1,5 +1,4 @@
 import tempfile
-import time
 from pathlib import Path
 from typing import cast
 
@@ -21,16 +20,8 @@ BACKGROUND_LABEL = "background"
 
 
 def load_table(run_id: str, artifact_path: str, columns: list[str]) -> pa.Table:
-    print(f"[load_table] downloading run={run_id[:8]} path={artifact_path}", flush=True)
-    t0 = time.perf_counter()
     local_path = mlflow.artifacts.download_artifacts(
         run_id=run_id, artifact_path=artifact_path
-    )
-    size_mb = Path(local_path).stat().st_size / 1024**2
-    print(
-        f"[load_table] got {size_mb:.1f} MB in {time.perf_counter() - t0:.1f}s "
-        f"-> {local_path}",
-        flush=True,
     )
     return pq.read_table(local_path, columns=columns)
 
@@ -161,13 +152,7 @@ def analyze(
     n_curve_points: int,
     output_dir: Path,
 ) -> None:
-    print(f"[analyze {split}] computing dominant class...", flush=True)
-    t0 = time.perf_counter()
     dominant = compute_dominant_class(table, class_names)
-    print(
-        f"[analyze {split}] dominant class done in {time.perf_counter() - t0:.1f}s",
-        flush=True,
-    )
     strata = [*class_names, BACKGROUND_LABEL]
 
     mlflow.log_metric(f"{split}_tile_count", len(table))
@@ -178,16 +163,10 @@ def analyze(
     class_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     class_hists: dict[str, np.ndarray] = {}
     for cls in class_names:
-        t0 = time.perf_counter()
         values = table.column(f"roi_coverage_{cls}").to_numpy(zero_copy_only=False)
         log_scalar_stats(f"{split}_roi_coverage_{cls}", values)
         class_sweeps[cls] = threshold_sweep(values, n_curve_points)
         class_hists[cls] = histogram_counts(values)
-        print(
-            f"[analyze {split}] roi_coverage_{cls} done in "
-            f"{time.perf_counter() - t0:.1f}s",
-            flush=True,
-        )
     for cls, (thresholds, counts) in class_sweeps.items():
         plot_class_coverage_sweep(
             f"{split} — ROI coverage: {cls}",
@@ -205,7 +184,6 @@ def analyze(
 
     # Tissue column: per-class scalars + per-class sweep + binary and per-class histograms.
     col = TISSUE_COLUMN
-    t0 = time.perf_counter()
     values = table.column(col).to_numpy(zero_copy_only=False)
     log_scalar_stats(f"{split}_{col}", values)
     tissue_hists: dict[str, np.ndarray] = {}
@@ -240,9 +218,6 @@ def analyze(
         f"{split} — {col} histogram (annotated vs background)",
         tissue_binary_hists,
         output_dir / f"histogram_binary_{col}.png",
-    )
-    print(
-        f"[analyze {split}] {col} done in {time.perf_counter() - t0:.1f}s", flush=True
     )
 
 
