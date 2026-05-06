@@ -16,7 +16,7 @@ from rationai.mlkit.lightning.loggers import MLFlowLogger
 from ratiopath.tiling.read_slide_tiles import read_slide_tiles
 from ray.data.expressions import col
 from tenacity import (
-    retry,
+    AsyncRetrying,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -32,22 +32,25 @@ class EmbedTiles:
             ),
             timeout=200,
         )
+        self._retryer = AsyncRetrying(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=4),
+            retry=retry_if_exception_type(httpx.HTTPError),
+            reraise=True,
+        )
         print(
             f"[EmbedTiles] actor initialized, model={model}, concurrency={concurrency}"
         )
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=4),
-        retry=retry_if_exception_type(httpx.HTTPError),
-        reraise=True,
-    )
-    async def _embed(self, tile: Any) -> list[float]:
+    async def _embed_once(self, tile: Any) -> list[float]:
         return (
             (await self.client.models.embed_image(self.model, tile))
             .reshape(-1)
             .tolist()
         )
+
+    async def _embed(self, tile: Any) -> list[float]:
+        return await self._retryer(self._embed_once, tile)
 
     async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
         try:
