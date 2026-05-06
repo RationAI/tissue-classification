@@ -98,7 +98,6 @@ def load_filter_tiles(
     return load_table(run_id, artifact, columns)
 
 
-
 def plot_class_coverage_sweep(
     title: str,
     thresholds: np.ndarray,
