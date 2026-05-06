@@ -111,14 +111,15 @@ def plot_threshold_sweep(
     ax.set_xlabel("threshold")
     ax.set_ylabel("count of tiles with coverage > threshold")
     ax.set_title(title)
-    # Crop to the region where curves are actually varying.
+    # Crop to the region where curves are actually varying: from where any curve
+    # drops to <99% of its peak down to where the last curve hits zero.
+    margin = 0.02
     x_mins, x_maxs = [], []
     for thresholds, counts in curves.values():
-        drop_indices = np.where(counts < counts[0])[0]
-        x_mins.append(float(thresholds[drop_indices[0]]) if len(drop_indices) else 0.0)
+        significant_drop = np.where(counts < 0.99 * counts[0])[0]
+        x_mins.append(float(thresholds[significant_drop[0]]) if len(significant_drop) else 0.0)
         nonzero = np.where(counts > 0)[0]
         x_maxs.append(float(thresholds[nonzero[-1]]) if len(nonzero) else 1.0)
-    margin = 0.02
     ax.set_xlim(max(min(x_mins) - margin, 0.0), min(max(x_maxs) + margin, 1.0))
     ax.legend(fontsize=8, loc="best")
     fig.tight_layout()
