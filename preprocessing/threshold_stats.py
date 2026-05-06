@@ -98,34 +98,6 @@ def load_filter_tiles(
     return load_table(run_id, artifact, columns)
 
 
-def plot_threshold_sweep(
-    title: str,
-    curves: dict[str, tuple[np.ndarray, np.ndarray]],
-    output_path: Path,
-) -> None:
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for label, (thresholds, counts) in curves.items():
-        ax.plot(
-            thresholds, counts, label=label, linewidth=1.5 if label == "all" else 1.0
-        )
-    ax.set_xlabel("threshold")
-    ax.set_ylabel("count of tiles with coverage > threshold")
-    ax.set_title(title)
-    # Crop to the region where curves are actually varying: from where any curve
-    # drops to <99% of its peak down to where the last curve hits zero.
-    margin = 0.02
-    x_mins, x_maxs = [], []
-    for thresholds, counts in curves.values():
-        significant_drop = np.where(counts < 0.99 * counts[0])[0]
-        x_mins.append(float(thresholds[significant_drop[0]]) if len(significant_drop) else 0.0)
-        nonzero = np.where(counts > 0)[0]
-        x_maxs.append(float(thresholds[nonzero[-1]]) if len(nonzero) else 1.0)
-    ax.set_xlim(max(min(x_mins) - margin, 0.0), min(max(x_maxs) + margin, 1.0))
-    ax.legend(fontsize=8, loc="best")
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=120)
-    plt.close(fig)
-
 
 def plot_class_coverage_sweep(
     title: str,
@@ -238,30 +210,28 @@ def analyze(
     values = table.column(col).to_numpy(zero_copy_only=False)
     log_scalar_stats(f"{split}_{col}", values)
     tissue_hists: dict[str, np.ndarray] = {}
-    tissue_binary_sweeps: dict[str, tuple[np.ndarray, np.ndarray]] = {
-        "all": threshold_sweep(values, n_curve_points)
-    }
     tissue_binary_hists: dict[str, np.ndarray] = {}
     for label in strata:
         mask = dominant == label
         if not mask.any():
             continue
-        log_scalar_stats(f"{split}_{col}_class_{label}", values[mask])
-        tissue_hists[label] = histogram_counts(values[mask])
+        stratum_values = values[mask]
+        log_scalar_stats(f"{split}_{col}_class_{label}", stratum_values)
+        tissue_hists[label] = histogram_counts(stratum_values)
+        thresholds, counts = threshold_sweep(stratum_values, n_curve_points)
+        plot_class_coverage_sweep(
+            f"{split} — tissue coverage: {label}",
+            thresholds,
+            counts,
+            output_dir / f"sweep_{col}_{label}.png",
+        )
     for label, mask in [
         ("annotated", annotated_mask),
         (BACKGROUND_LABEL, ~annotated_mask),
     ]:
         if not mask.any():
             continue
-        stratum_values = values[mask]
-        tissue_binary_sweeps[label] = threshold_sweep(stratum_values, n_curve_points)
-        tissue_binary_hists[label] = histogram_counts(stratum_values)
-    plot_threshold_sweep(
-        f"{split} — {col} threshold sweep (annotated vs background)",
-        tissue_binary_sweeps,
-        output_dir / f"sweep_{col}.png",
-    )
+        tissue_binary_hists[label] = histogram_counts(values[mask])
     plot_histogram(
         f"{split} — {col} histogram by dominant class",
         tissue_hists,
