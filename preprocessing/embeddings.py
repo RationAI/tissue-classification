@@ -99,7 +99,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         ds = ray.data.read_parquet(
             str(tiles_path),
             columns=["slide_id", "x", "y"],
-            ray_remote_args={"memory": 8 * 1024**3},
             override_num_blocks=num_blocks,
         ).map(
             lambda row, si: {**row, **si[row["slide_id"]]},
