@@ -13,7 +13,7 @@ dataset:
     train_split_filename: "split_mapping/train_split.csv"
     test_split_filename: "split_mapping/test_split.csv"
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
-    train_tiles_filename: "train_split/tiles.parquet"
+    filter_tiles_run_id: "4e8f5d3c82124ea5a8f871a42d3ed9ba"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
     tissue_stats_run_id: "16ae2d003d88471b924e5f332415232a"
 

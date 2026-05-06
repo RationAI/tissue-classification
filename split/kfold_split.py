@@ -139,8 +139,8 @@ def log_fold_statistics(
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
     parquet_path = mlflow.artifacts.download_artifacts(
-        run_id=config.dataset.mlflow_artifacts.tiling_run_id,
-        artifact_path=config.dataset.mlflow_artifacts.train_tiles_filename,
+        run_id=config.dataset.mlflow_artifacts.filter_tiles_run_id,
+        artifact_path="filter_tiles/train_tiles.parquet",
     )
 
     dataset = load_dataset("parquet", data_files=parquet_path, split="train")
