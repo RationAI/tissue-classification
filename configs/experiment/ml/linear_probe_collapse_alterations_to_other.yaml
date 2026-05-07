@@ -2,7 +2,7 @@
 
 defaults:
   - /data: dataset
-  - /class_mapping: collapse_alterations_to_other
+  - override /class_mapping: collapse_alterations_to_other
   - _self_
 
 embeddings_run_id: ${dataset.mlflow_artifacts.embeddings_run_id}
