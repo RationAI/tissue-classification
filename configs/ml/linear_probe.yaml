@@ -1,12 +1,14 @@
 # @package _global_
 
 defaults:
-  - /class_mapping: standard
+  - /class_mapping: collapse_alterations_to_other
 
 mode: fit
 
-embed_dim: ???
+embed_dim: 2560
 embeddings_run_id: ???
+kfold_run_id: ???
+n_folds: 5
 
 trainer:
   _target_: rationai.mlkit.lightning.Trainer
@@ -15,17 +17,18 @@ trainer:
   devices: 1
   log_every_n_steps: 50
 
-val_fold: 0
-
 data:
   _target_: ml.data.embeddings_datamodule.EmbeddingsDataModule
-  train_dir: ${project_path}/embeddings/${embeddings_run_id}/train/tiles
-  test_dir: ${project_path}/embeddings/${embeddings_run_id}/test/tiles
-  class_names: ${class_mapping.class_names}
-  val_fold: ${val_fold}
+  embeddings_run_id: ${embeddings_run_id}
+  kfold_run_id: ${kfold_run_id}
+  kfold_artifact_path: kfold_split/kfold_tiles.parquet
+  class_mapping: ${class_mapping.class_mapping}
+  class_indices: ${class_mapping.class_indices}
+  drop_unmapped: true
+  tissue_prop_min: 0.0
+  class_coverage_min: 0.0
   batch_size: 1024
   num_workers: 4
-  tissue_prop_min: 0.0
 
 model:
   _target_: ml.models.linear_probe.LinearProbe
@@ -33,12 +36,15 @@ model:
   num_classes: ${len:${class_mapping.class_names}}
   lr: 1e-3
   weight_decay: 0.0
+  class_names: ${class_mapping.class_names}
 
 metadata:
-  run_name: "Linear probe (embed_dim=${embed_dim})"
-  description: Linear probe on cached embeddings
+  run_name: "Linear probe (embed=${embeddings_run_id}, kfold=${kfold_run_id})"
+  description: Linear probe on cached Virchow2 embeddings, k-fold CV
   hyperparams:
     embed_dim: ${embed_dim}
     lr: ${model.lr}
     batch_size: ${data.batch_size}
-    val_fold: ${val_fold}
+    n_folds: ${n_folds}
+    tissue_prop_min: ${data.tissue_prop_min}
+    class_coverage_min: ${data.class_coverage_min}

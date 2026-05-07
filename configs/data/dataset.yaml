@@ -15,6 +15,8 @@ dataset:
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
     tissue_stats_run_id: "16ae2d003d88471b924e5f332415232a"
+    embeddings_run_id: "f05076dcd5e64cb2839efe5fb20a22ae"
+    kfold_run_id: "2e81b0597b614ba8b675e3b34528c1df"
 
   exclusions:
     bad_slides:

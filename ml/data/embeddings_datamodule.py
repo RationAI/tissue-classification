@@ -1,75 +1,231 @@
+import logging
+import warnings
 from pathlib import Path
+from typing import Any
 
 import lightning as pl
-from datasets import load_dataset
+import mlflow
+import numpy as np
+import pandas as pd
+import pyarrow as pa
+import pyarrow.dataset as pad
+from datasets import Dataset
+from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 
 
-class EmbeddingsDataModule(pl.LightningDataModule):
-    """Linear-probe data module backed by HuggingFace datasets.
+log = logging.getLogger(__name__)
 
-    Expects parquet files with columns: `embedding` (list[float]), `label` (str),
-    `fold` (int, train side only), and `tissue_prop` (float).
+
+class EmbeddingsDataModule(pl.LightningDataModule):
+    """Linear-probe data module.
+
+    Downloads embeddings and kfold-split artifacts from MLflow, joins them on
+    (slide_id, x, y), applies class mapping and coverage filters, and exposes
+    train/val splits per fold via set_val_fold().
     """
 
     def __init__(
         self,
-        train_dir: str,
-        test_dir: str,
-        class_names: list[str],
-        val_fold: int = 0,
+        embeddings_run_id: str,
+        kfold_run_id: str,
+        class_mapping: dict[str, list[str]],
+        class_indices: dict[str, int],
+        kfold_artifact_path: str = "kfold_split/kfold_tiles.parquet",
+        drop_unmapped: bool = True,
+        tissue_prop_min: float = 0.0,
+        class_coverage_min: float = 0.0,
         batch_size: int = 1024,
         num_workers: int = 4,
-        tissue_prop_min: float = 0.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
-        self.class_to_idx = {c: i for i, c in enumerate(class_names)}
+        self.embeddings_run_id = embeddings_run_id
+        self.kfold_run_id = kfold_run_id
+        self.kfold_artifact_path = kfold_artifact_path
+        self.drop_unmapped = drop_unmapped
+        self.tissue_prop_min = tissue_prop_min
+        self.class_coverage_min = class_coverage_min
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        cm: Any = (
+            OmegaConf.to_container(class_mapping, resolve=True)
+            if OmegaConf.is_config(class_mapping)
+            else class_mapping
+        )
+        ci: Any = (
+            OmegaConf.to_container(class_indices, resolve=True)
+            if OmegaConf.is_config(class_indices)
+            else class_indices
+        )
+        self._class_mapping: dict[str, list[str]] = dict(cm)
+        self._raw_to_canonical: dict[str, str] = {
+            raw: canonical
+            for canonical, raws in self._class_mapping.items()
+            for raw in raws
+        }
+        self._class_indices: dict[str, int] = dict(ci)
+        self._emb_dir: Path | None = None
+        self._kfold_path: Path | None = None
+        self.full_dataset: Dataset | None = None
+        self.train_set: Dataset | None = None
+        self.val_set: Dataset | None = None
+        self._val_fold: int = 0
+        self._fold_array: np.ndarray | None = None
 
-    def _load(self, parquet_dir: str) -> "Dataset":  # type: ignore[name-defined]
-        files = sorted(str(p) for p in Path(parquet_dir).glob("*.parquet"))
-        ds = load_dataset("parquet", data_files=files, split="train")
-        if self.hparams.tissue_prop_min > 0:
-            ds = ds.filter(
-                lambda r: r["tissue_prop"] >= self.hparams.tissue_prop_min
-            )
-        ds = ds.map(lambda r: {"y": self.class_to_idx[r["label"]]})
-        return ds
+    # ------------------------------------------------------------------
+    # prepare_data - single-process MLflow download
+    # ------------------------------------------------------------------
+
+    def prepare_data(self) -> None:
+        emb_local = mlflow.artifacts.download_artifacts(
+            run_id=self.embeddings_run_id,
+            artifact_path="train",
+        )
+        self._emb_dir = Path(emb_local)
+
+        kfold_local = mlflow.artifacts.download_artifacts(
+            run_id=self.kfold_run_id,
+            artifact_path=self.kfold_artifact_path,
+        )
+        self._kfold_path = Path(kfold_local)
+
+    # ------------------------------------------------------------------
+    # setup - join, filter, build full_dataset once
+    # ------------------------------------------------------------------
 
     def setup(self, stage: str) -> None:
-        train_full = self._load(self.hparams.train_dir)
-        self.train_set = train_full.filter(
-            lambda r: r["fold"] != self.hparams.val_fold
-        ).with_format("torch", columns=["embedding", "y"])
-        self.val_set = train_full.filter(
-            lambda r: r["fold"] == self.hparams.val_fold
-        ).with_format("torch", columns=["embedding", "y"])
-        self.test_set = self._load(self.hparams.test_dir).with_format(
-            "torch", columns=["embedding", "y"]
+        if self.full_dataset is not None:
+            return  # already built; use set_val_fold() to change splits
+
+        assert self._emb_dir is not None and self._kfold_path is not None, (
+            "Call prepare_data() before setup()"
         )
 
+        # --- load kfold labels (small) ---
+        labels_df = pd.read_parquet(self._kfold_path)
+        n_initial = len(labels_df)
+        roi_cols = [c for c in labels_df.columns if c.startswith("roi_coverage_")]
+
+        # --- apply raw→canonical label mapping ---
+        labels_df["label"] = labels_df["label"].map(self._raw_to_canonical)
+        if self.drop_unmapped:
+            n_before = len(labels_df)
+            labels_df = labels_df[labels_df["label"].notna()].copy()
+            dropped = n_before - len(labels_df)
+            if dropped:
+                log.warning("Dropping %d tiles with unmapped labels", dropped)
+        mlflow.log_metric("n_tiles_initial", n_initial)
+        mlflow.log_metric("n_tiles_after_label_map", len(labels_df))
+
+        # --- tissue_prop filter ---
+        if self.tissue_prop_min > 0.0:
+            labels_df = labels_df[
+                labels_df["tissue_prop"] >= self.tissue_prop_min
+            ].copy()
+        mlflow.log_metric("n_tiles_after_tissue_prop_filter", len(labels_df))
+
+        # --- compute dominant_coverage (coverage of the assigned canonical class) ---
+        dom_cov = np.zeros(len(labels_df), dtype=np.float32)
+        label_arr = labels_df["label"].to_numpy()
+        for canonical, raws in self._class_mapping.items():
+            cols = [
+                f"roi_coverage_{r}"
+                for r in raws
+                if f"roi_coverage_{r}" in labels_df.columns
+            ]
+            mask: np.ndarray = label_arr == canonical
+            if cols and mask.any():
+                dom_cov[mask] = labels_df.loc[mask, cols].sum(axis=1).to_numpy()
+        labels_df["dominant_coverage"] = dom_cov
+
+        if self.class_coverage_min > 0.0:
+            labels_df = labels_df[
+                labels_df["dominant_coverage"] >= self.class_coverage_min
+            ].copy()
+        mlflow.log_metric("n_tiles_after_class_coverage_filter", len(labels_df))
+
+        labels_df = labels_df.drop(
+            columns=[*roi_cols, "dominant_coverage"], errors="ignore"
+        )
+
+        # --- map label → integer class index (column name avoids collision with tile y-coord) ---
+        labels_df["target"] = labels_df["label"].map(self._class_indices).astype(int)
+
+        # --- load embeddings (memory-mapped Arrow) ---
+        emb_files = sorted(self._emb_dir.rglob("*.parquet"))
+        emb_table = pad.dataset([str(f) for f in emb_files], format="parquet").to_table(
+            columns=["slide_id", "x", "y", "embedding"]
+        )
+        mlflow.log_metric("n_embeddings", len(emb_table))
+
+        # --- inner-join on (slide_id, x, y) ---
+        labels_table = pa.Table.from_pandas(
+            labels_df[["slide_id", "x", "y", "fold", "tissue_prop", "label", "target"]],
+            preserve_index=False,
+        )
+        mlflow.log_metric("n_labels", len(labels_table))
+
+        joined = emb_table.join(
+            labels_table,
+            keys=["slide_id", "x", "y"],
+            join_type="inner",
+        )
+        n_joined = len(joined)
+        mlflow.log_metric("n_joined", n_joined)
+
+        gap = len(labels_table) - n_joined
+        if gap > 0:
+            warnings.warn(
+                f"Join gap: {gap} label tiles have no matching embedding "
+                "(embed run may have dropped tiles due to upstream failures).",
+                stacklevel=2,
+            )
+
+        self.full_dataset = Dataset(arrow_table=joined)
+        self._fold_array = np.asarray(joined.column("fold"), dtype=np.int64)
+        self.set_val_fold(self._val_fold)
+
+    # ------------------------------------------------------------------
+    # fold management
+    # ------------------------------------------------------------------
+
+    def set_val_fold(self, fold: int) -> None:
+        self._val_fold = fold
+        if self.full_dataset is None or self._fold_array is None:
+            return
+        train_idx = np.flatnonzero(self._fold_array != fold).tolist()
+        val_idx = np.flatnonzero(self._fold_array == fold).tolist()
+        self.train_set = self.full_dataset.select(train_idx).with_format(
+            "torch", columns=["embedding", "target"]
+        )
+        self.val_set = self.full_dataset.select(val_idx).with_format(
+            "torch", columns=["embedding", "target"]
+        )
+
+    # ------------------------------------------------------------------
+    # dataloaders
+    # ------------------------------------------------------------------
+
     @staticmethod
-    def _collate(batch: list[dict]) -> tuple:
+    def _collate(batch: list[dict[str, Any]]) -> tuple[Any, Any]:
         import torch
 
         x = torch.stack([b["embedding"].float() for b in batch])
-        y = torch.stack([b["y"].long() for b in batch])
+        y = torch.stack([b["target"].long() for b in batch])
         return x, y
 
-    def _loader(self, ds, shuffle: bool) -> DataLoader:
+    def _loader(self, ds: Dataset, shuffle: bool) -> DataLoader[Any]:
         return DataLoader(
             ds,
-            batch_size=self.hparams.batch_size,
+            batch_size=self.batch_size,
             shuffle=shuffle,
-            num_workers=self.hparams.num_workers,
+            num_workers=self.num_workers,
             collate_fn=self._collate,
         )
 
-    def train_dataloader(self) -> DataLoader:
+    def train_dataloader(self) -> DataLoader[Any]:
         return self._loader(self.train_set, shuffle=True)
 
-    def val_dataloader(self) -> DataLoader:
+    def val_dataloader(self) -> DataLoader[Any]:
         return self._loader(self.val_set, shuffle=False)
-
-    def test_dataloader(self) -> DataLoader:
-        return self._loader(self.test_set, shuffle=False)
