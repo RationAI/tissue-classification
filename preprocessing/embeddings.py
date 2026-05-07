@@ -29,16 +29,12 @@ class EmbedTiles:
         )
         self.count = 0
         self.in_flight = 0
-        self.first_row_logged = False
         self.start = time.monotonic()
         print(
             f"[EmbedTiles] actor initialized, model={model}, concurrency={concurrency}"
         )
 
     async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
-        if not self.first_row_logged:
-            self.first_row_logged = True
-            print(f"[EmbedTiles] first row at t={time.monotonic() - self.start:.2f}s")
         self.in_flight += 1
         t0 = time.monotonic()
         try:
