@@ -22,8 +22,8 @@ data:
   embeddings_run_id: ${embeddings_run_id}
   kfold_run_id: ${kfold_run_id}
   kfold_artifact_path: kfold_split/kfold_tiles.parquet
-  class_mapping: ${class_mapping.class_mapping}
-  class_indices: ${class_mapping.class_indices}
+  class_mapping: ${class_mapping}
+  class_indices: ${class_indices}
   drop_unmapped: true
   tissue_prop_min: 0.0
   class_coverage_min: 0.0
@@ -33,10 +33,10 @@ data:
 model:
   _target_: ml.models.linear_probe.LinearProbe
   embed_dim: ${embed_dim}
-  num_classes: ${len:${class_mapping.class_names}}
+  num_classes: ${len:${class_names}}
   lr: 1e-3
   weight_decay: 0.0
-  class_names: ${class_mapping.class_names}
+  class_names: ${class_names}
 
 metadata:
   run_name: "Linear probe (embed=${embeddings_run_id}, kfold=${kfold_run_id})"

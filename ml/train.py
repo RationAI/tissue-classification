@@ -1,3 +1,4 @@
+import secrets
 from typing import TYPE_CHECKING, Any
 
 import hydra
@@ -5,13 +6,21 @@ import lightning as pl
 import mlflow
 import numpy as np
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 
 
 if TYPE_CHECKING:
     from ml.data.embeddings_datamodule import EmbeddingsDataModule
+
+
+if not OmegaConf.has_resolver("random_seed"):
+    OmegaConf.register_new_resolver(
+        "random_seed", lambda: secrets.randbits(32), use_cache=True
+    )
+if not OmegaConf.has_resolver("len"):
+    OmegaConf.register_new_resolver("len", len)
 
 
 @with_cli_args(["+ml=linear_probe"])
