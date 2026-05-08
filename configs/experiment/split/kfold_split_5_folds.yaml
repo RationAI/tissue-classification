@@ -1,0 +1,7 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - _self_
+
+n_folds: 5
