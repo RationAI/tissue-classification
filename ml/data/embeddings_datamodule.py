@@ -59,12 +59,17 @@ class EmbeddingsDataModule(pl.LightningDataModule):
             else class_indices
         )
         self._class_mapping: dict[str, list[str]] = dict(cm)
+        self._class_indices: dict[str, int] = dict(ci)
         self._raw_to_canonical: dict[str, str] = {
             raw: canonical
             for canonical, raws in self._class_mapping.items()
             for raw in raws
         }
-        self._class_indices: dict[str, int] = dict(ci)
+        # Accept already-canonical labels as identity. The filtered tiles parquet
+        # collapses ROI columns at tiling time, so kfold writes canonical names
+        # (e.g. "Epithelium") directly into `label`; the raw→canonical lists in
+        # the class-mapping YAML still cover legacy un-collapsed parquets.
+        self._raw_to_canonical.update({c: c for c in self._class_indices})
         self._emb_dir: Path | None = None
         self._kfold_path: Path | None = None
         self.full_dataset: Dataset | None = None
