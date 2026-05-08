@@ -1,0 +1,6 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - /class_mapping: collapse_alterations_to_other
+  - _self_
