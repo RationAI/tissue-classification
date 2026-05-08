@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - _self_
+
+tissue_prop_min: 0.5
+thresholds: ???
+
+metadata:
+  run_name: Embedding dataset ${dataset.name}
+  description: "Join k-fold (${dataset.mlflow_artifacts.kfold_run_id}) and filter_tiles (${dataset.mlflow_artifacts.filter_tiles_run_id}) tile metadata with embeddings (${dataset.mlflow_artifacts.embedding_run_id})."
+  hyperparams:
+    kfold_run_id: ${dataset.mlflow_artifacts.kfold_run_id}
+    filter_tiles_run_id: ${dataset.mlflow_artifacts.filter_tiles_run_id}
+    embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_id}

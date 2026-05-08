@@ -1,0 +1,13 @@
+# @package _global_
+
+mlflow_artifact_path: embedding_dataset
+
+tissue_prop_min: ???
+thresholds: ???
+
+metadata:
+  run_name: "Embedding dataset ${dataset.name}"
+  description: "Build embedding training dataset by joining k-fold/filter_tiles tile metadata with precomputed embeddings."
+  hyperparams:
+    tissue_prop_min: ${tissue_prop_min}
+    thresholds: ${thresholds}
