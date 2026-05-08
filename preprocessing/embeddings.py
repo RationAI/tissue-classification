@@ -30,8 +30,8 @@ class EmbedTiles:
 
     async def __call__(self, row: dict[str, Any]) -> dict[str, Any]:
         try:
-            last_exc: Exception | None = None
-            for attempt in range(3):
+            last_exc: httpx.HTTPError | None = None
+            for attempt in range(6):
                 try:
                     embedding = (
                         (await self.client.models.embed_image(self.model, row["tile"]))
@@ -39,12 +39,12 @@ class EmbedTiles:
                         .tolist()
                     )
                     break
-                except Exception as exc:
+                except httpx.HTTPError as exc:
                     last_exc = exc
-                    if attempt < 2:
-                        await asyncio.sleep(2**attempt)
+                    if attempt < 5:
+                        await asyncio.sleep(min(60, 2**attempt))
             else:
-                raise RuntimeError("embed_image failed after 3 attempts") from last_exc
+                raise RuntimeError("embed_image failed after 6 attempts") from last_exc
         finally:
             del row["tile"]
         row["embedding"] = embedding
@@ -102,6 +102,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             EmbedTiles,  # pyright: ignore[reportArgumentType]
             fn_constructor_args=(config.model, config.concurrency),
             compute=ray.data.ActorPoolStrategy(
+                min_size=4,
                 max_size=4,
                 max_tasks_in_flight_per_actor=max(1, config.concurrency // 4),
             ),
