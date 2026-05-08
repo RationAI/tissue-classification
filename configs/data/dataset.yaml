@@ -14,6 +14,8 @@ dataset:
     test_split_filename: "split_mapping/test_split.csv"
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
     filter_tiles_run_id: "4e8f5d3c82124ea5a8f871a42d3ed9ba"
+    kfold_run_id: "850c81506684450b9af92296acfd045a"
+    embedding_run_id: "06d2d8eb088c4e04b04435940774c7aa"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
     tissue_stats_run_id: "16ae2d003d88471b924e5f332415232a"
 

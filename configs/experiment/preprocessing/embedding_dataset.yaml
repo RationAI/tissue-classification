@@ -4,8 +4,15 @@ defaults:
   - /data: dataset
   - _self_
 
-tissue_prop_min: 0.5
-thresholds: ???
+tissue_prop_min: 0.2
+thresholds:
+  Nerve: 0.0
+  Blood: 0.0
+  Connective-Tissue: 0.0
+  Fat: 0.0
+  Epithelium: 0.0
+  Muscle: 0.0
+  Other: 0.0
 
 metadata:
   run_name: Embedding dataset ${dataset.name}
