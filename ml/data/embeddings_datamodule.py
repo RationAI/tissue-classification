@@ -167,7 +167,7 @@ class EmbeddingsDataModule(pl.LightningDataModule):
 
         # --- inner-join on (slide_id, x, y) ---
         labels_table = pa.Table.from_pandas(
-            labels_df[["slide_id", "x", "y", "fold", "tissue_prop", "label", "target"]],
+            labels_df[["slide_id", "x", "y", "fold", "tissue_prop", "target"]],
             preserve_index=False,
         )
         log.info("Labels schema: %s", labels_table.schema)
