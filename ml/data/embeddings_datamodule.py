@@ -158,7 +158,7 @@ class EmbeddingsDataModule(pl.LightningDataModule):
         labels_df["target"] = labels_df["label"].map(self._class_indices).astype(int)
 
         # --- load embeddings (memory-mapped Arrow) ---
-        emb_files = sorted(self._emb_dir.rglob("*.parquet"))
+        emb_files = sorted((self._emb_dir / "tiles").rglob("*.parquet"))
         emb_table = pad.dataset([str(f) for f in emb_files], format="parquet").to_table(
             columns=["slide_id", "x", "y", "embedding"]
         )
