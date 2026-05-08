@@ -212,9 +212,17 @@ class EmbeddingsDataModule(pl.LightningDataModule):
             join_type="inner",
         )
         emb_indices = joined_meta.column("_emb_row")
+        
+        emb_type = emb_table.schema.field("embedding").type
+        emb_col = emb_table.column("embedding")
+        if pa.types.is_list(emb_type):
+            large_list_type = pa.large_list(emb_type.value_type)
+            emb_col = emb_col.cast(large_list_type)
+            emb_type = large_list_type
+
         joined = joined_meta.drop_columns(["_emb_row"]).append_column(
-            pa.field("embedding", emb_table.schema.field("embedding").type),
-            emb_table.column("embedding").take(emb_indices),
+            pa.field("embedding", emb_type),
+            emb_col.take(emb_indices),
         )
         n_joined = len(joined)
         mlflow.log_metric("n_joined", n_joined)
