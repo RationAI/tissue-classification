@@ -25,6 +25,7 @@ dependencies = [
     "numpy>=2.3.5",
     "rationai-tiling>=1.1.1",
     "tifffile>=2025.12.20",
+    "matplotlib>=3.10.7",
     "pyarrow>=19.0.1",
     "datasets>=4.0.0",
 ]

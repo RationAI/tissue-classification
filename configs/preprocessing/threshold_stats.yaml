@@ -1,0 +1,14 @@
+# @package _global_
+
+mlflow_artifact_path: threshold_stats
+
+# Upstream artifact templates ({split} resolved to "train" / "test").
+# Adjust if upstream `mlflow_artifact_path` differs.
+filter_tiles_artifact_template: "filter_tiles/{split}_tiles.parquet"
+
+# Number of sample points used to draw threshold sweep curves.
+survival_curve_points: 1000
+
+metadata:
+  run_name: Threshold Stats ${dataset.name}
+  description: "Per-tile ROI coverage statistics (tiling + tissue) for threshold selection"
