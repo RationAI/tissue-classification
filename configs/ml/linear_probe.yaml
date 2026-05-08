@@ -1,8 +1,5 @@
 # @package _global_
 
-defaults:
-  - /class_mapping: collapse_alterations_to_other
-
 mode: fit
 
 embed_dim: 2560
@@ -26,7 +23,7 @@ data:
   class_indices: ${class_indices}
   drop_unmapped: true
   tissue_prop_min: 0.0
-  class_coverage_min: 0.0
+  class_coverage_min: 0.5
   batch_size: 1024
   num_workers: 4
 
@@ -37,6 +34,7 @@ model:
   lr: 1e-3
   weight_decay: 0.0
   class_names: ${class_names}
+  class_weights: balanced  # null | "balanced" | "inverse" | list[float]
 
 metadata:
   run_name: "Linear probe (embed=${embeddings_run_id}, kfold=${kfold_run_id})"

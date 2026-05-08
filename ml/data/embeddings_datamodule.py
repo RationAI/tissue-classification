@@ -208,6 +208,30 @@ class EmbeddingsDataModule(pl.LightningDataModule):
             "torch", columns=["embedding", "target"]
         )
 
+    def compute_class_weights(self, method: str = "balanced") -> list[float]:
+        """Compute per-class loss weights from the current training fold.
+
+        ``balanced`` follows sklearn's ``compute_class_weight``:
+        ``w_c = n_samples / (n_classes * count_c)``. ``inverse`` uses
+        ``1 / count_c`` normalised to mean 1.
+        """
+        if self.full_dataset is None or self._fold_array is None:
+            raise RuntimeError("call setup()/set_val_fold() before compute_class_weights()")
+        targets = np.asarray(self.full_dataset.data.column("target"), dtype=np.int64)
+        train_mask = self._fold_array != self._val_fold
+        train_targets = targets[train_mask]
+        n_classes = len(self._class_indices)
+        counts = np.bincount(train_targets, minlength=n_classes).astype(np.float64)
+        counts = np.maximum(counts, 1.0)
+        if method == "balanced":
+            weights = train_targets.size / (n_classes * counts)
+        elif method == "inverse":
+            weights = 1.0 / counts
+            weights = weights / weights.mean()
+        else:
+            raise ValueError(f"Unknown class-weight method: {method!r}")
+        return weights.tolist()
+
     # ------------------------------------------------------------------
     # dataloaders
     # ------------------------------------------------------------------

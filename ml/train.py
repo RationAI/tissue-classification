@@ -45,7 +45,13 @@ def _fit(config: DictConfig, logger: MLFlowLogger) -> None:
         pl.seed_everything(config.seed + fold)
         datamodule.set_val_fold(fold)
 
-        model: pl.LightningModule = instantiate(config.model)
+        weights_spec = config.model.get("class_weights", None)
+        weights = (
+            datamodule.compute_class_weights(weights_spec)
+            if isinstance(weights_spec, str)
+            else weights_spec
+        )
+        model: pl.LightningModule = instantiate(config.model, class_weights=weights)
         trainer: pl.Trainer = instantiate(config.trainer, logger=logger)
         trainer.fit(model, datamodule=datamodule)
 
