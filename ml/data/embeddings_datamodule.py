@@ -177,12 +177,18 @@ class EmbeddingsDataModule(pl.LightningDataModule):
         # tables: slide_id → large_string, x/y → int64. Handles null-type columns
         # that can arise when Ray writes parquets with an inferred null schema, and
         # type mismatches between string vs large_string across files.
+        # Acero also does not support list-typed non-key fields, so the embedding
+        # column is excluded from the join and reattached via row-index lookup.
         join_key_types: dict[str, pa.DataType] = {
             "slide_id": pa.large_string(),
             "x": pa.int64(),
             "y": pa.int64(),
         }
-        for tbl_name, tbl in [("emb", emb_table), ("labels", labels_table)]:
+
+        emb_keys = emb_table.select(["slide_id", "x", "y"]).append_column(
+            "_emb_row", pa.array(range(len(emb_table)), type=pa.int64())
+        )
+        for tbl_name, tbl in [("emb_keys", emb_keys), ("labels", labels_table)]:
             for col_name, target_type in join_key_types.items():
                 idx = tbl.schema.get_field_index(col_name)
                 actual_type = tbl.schema.field(col_name).type
@@ -191,19 +197,24 @@ class EmbeddingsDataModule(pl.LightningDataModule):
                         "%s.%s has type %s, casting to %s",
                         tbl_name, col_name, actual_type, target_type,
                     )
-                    if tbl_name == "emb":
-                        emb_table = emb_table.set_column(
-                            idx, col_name, emb_table.column(col_name).cast(target_type)
+                    if tbl_name == "emb_keys":
+                        emb_keys = emb_keys.set_column(
+                            idx, col_name, emb_keys.column(col_name).cast(target_type)
                         )
                     else:
                         labels_table = labels_table.set_column(
                             idx, col_name, labels_table.column(col_name).cast(target_type)
                         )
 
-        joined = emb_table.join(
+        joined_meta = emb_keys.join(
             labels_table,
             keys=["slide_id", "x", "y"],
             join_type="inner",
+        )
+        emb_indices = joined_meta.column("_emb_row")
+        joined = joined_meta.drop_columns(["_emb_row"]).append_column(
+            pa.field("embedding", emb_table.schema.field("embedding").type),
+            emb_table.column("embedding").take(emb_indices),
         )
         n_joined = len(joined)
         mlflow.log_metric("n_joined", n_joined)
