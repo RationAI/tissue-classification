@@ -162,6 +162,7 @@ class EmbeddingsDataModule(pl.LightningDataModule):
         emb_table = pad.dataset([str(f) for f in emb_files], format="parquet").to_table(
             columns=["slide_id", "x", "y", "embedding"]
         )
+        log.info("Embeddings schema: %s", emb_table.schema)
         mlflow.log_metric("n_embeddings", len(emb_table))
 
         # --- inner-join on (slide_id, x, y) ---
@@ -169,7 +170,35 @@ class EmbeddingsDataModule(pl.LightningDataModule):
             labels_df[["slide_id", "x", "y", "fold", "tissue_prop", "label", "target"]],
             preserve_index=False,
         )
+        log.info("Labels schema: %s", labels_table.schema)
         mlflow.log_metric("n_labels", len(labels_table))
+
+        # Acero join requires concrete, matching types on join keys. Normalise both
+        # tables: slide_id → large_string, x/y → int64. Handles null-type columns
+        # that can arise when Ray writes parquets with an inferred null schema, and
+        # type mismatches between string vs large_string across files.
+        join_key_types: dict[str, pa.DataType] = {
+            "slide_id": pa.large_string(),
+            "x": pa.int64(),
+            "y": pa.int64(),
+        }
+        for tbl_name, tbl in [("emb", emb_table), ("labels", labels_table)]:
+            for col_name, target_type in join_key_types.items():
+                idx = tbl.schema.get_field_index(col_name)
+                actual_type = tbl.schema.field(col_name).type
+                if actual_type != target_type:
+                    log.warning(
+                        "%s.%s has type %s, casting to %s",
+                        tbl_name, col_name, actual_type, target_type,
+                    )
+                    if tbl_name == "emb":
+                        emb_table = emb_table.set_column(
+                            idx, col_name, emb_table.column(col_name).cast(target_type)
+                        )
+                    else:
+                        labels_table = labels_table.set_column(
+                            idx, col_name, labels_table.column(col_name).cast(target_type)
+                        )
 
         joined = emb_table.join(
             labels_table,
