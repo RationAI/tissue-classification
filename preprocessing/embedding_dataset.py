@@ -175,9 +175,7 @@ def process_split(
             flush=True,
         )
 
-    sort_indices = pc.sort_indices(
-        merged_table, sort_keys=[("slide_id", "ascending")]
-    )
+    sort_indices = pc.sort_indices(merged_table, sort_keys=[("slide_id", "ascending")])
     merged_table = merged_table.take(sort_indices)
 
     output_split_dir.mkdir(parents=True, exist_ok=True)
