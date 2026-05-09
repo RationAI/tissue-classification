@@ -8,6 +8,7 @@ emits a training-ready Parquet dataset (per-split ``slides.parquet`` +
 
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 import hydra
@@ -52,16 +53,28 @@ def join_embeddings(
     embedding_split: str,
 ) -> tuple[pd.DataFrame, int]:
     """Join filtered tile metadata with embeddings on (slide_id, x, y)."""
+    t0 = time.time()
     emb_dir = mlflow.artifacts.download_artifacts(
         run_id=embedding_run_id, artifact_path=f"{embedding_split}/tiles"
     )
-    emb_table = pads.dataset(emb_dir, format="parquet").to_table(
-        columns=["slide_id", "x", "y", "embedding"]
-    )
+    print(f"[timing] download embeddings: {time.time() - t0:.1f}s", flush=True)
+
+    t0 = time.time()
+    emb_ds = pads.dataset(emb_dir, format="parquet")
+    print(f"[timing] embedding dataset has {emb_ds.count_rows()} rows", flush=True)
+    emb_table = emb_ds.to_table(columns=["slide_id", "x", "y", "embedding"])
+    print(f"[timing] to_table: {time.time() - t0:.1f}s", flush=True)
+
+    t0 = time.time()
     emb_df = emb_table.to_pandas()
     del emb_table
+    print(f"[timing] to_pandas: {time.time() - t0:.1f}s  shape={emb_df.shape}", flush=True)
 
+    t0 = time.time()
     merged = tiles_df.merge(emb_df, on=["slide_id", "x", "y"], how="inner")
+    print(f"[timing] merge: {time.time() - t0:.1f}s  shape={merged.shape}", flush=True)
+    del emb_df
+
     dropped_no_embedding = len(tiles_df) - len(merged)
     return merged, dropped_no_embedding
 
@@ -76,11 +89,14 @@ def process_split(
     output_split_dir: Path,
     derive: bool,
 ) -> dict[str, int]:
+    print(f"[{split_name}] downloading src tiles...", flush=True)
+    t0 = time.time()
     src_local = mlflow.artifacts.download_artifacts(
         run_id=src_run_id, artifact_path=src_artifact_path
     )
     df = pads.dataset(src_local, format="parquet").to_table().to_pandas()
     input_count = len(df)
+    print(f"[{split_name}] src tiles loaded: {input_count} rows  {time.time() - t0:.1f}s", flush=True)
 
     roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
     if not roi_cols:
@@ -115,6 +131,7 @@ def process_split(
         c for c in df.columns if c.startswith(("roi_coverage_", "tile_coverage_"))
     ]
     df = df.drop(columns=drop_cols)
+    print(f"[{split_name}] after thresholds: {after_class_threshold} rows, joining embeddings...", flush=True)
 
     merged, dropped_no_embedding = join_embeddings(df, embedding_run_id, split_name)
     if dropped_no_embedding != 0:
@@ -124,11 +141,16 @@ def process_split(
             flush=True,
         )
 
+    t0 = time.time()
     merged = merged.sort_values("slide_id", kind="stable").reset_index(drop=True)
+    print(f"[{split_name}] sort: {time.time() - t0:.1f}s", flush=True)
 
     output_split_dir.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
     merged.to_parquet(output_split_dir / "tiles.parquet", index=False)
+    print(f"[{split_name}] write parquet: {time.time() - t0:.1f}s", flush=True)
 
+    print(f"[{split_name}] downloading slides.parquet...", flush=True)
     slides_local = mlflow.artifacts.download_artifacts(
         run_id=embedding_run_id, artifact_path=f"{split_name}/slides.parquet"
     )
