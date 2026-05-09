@@ -8,7 +8,6 @@ emits a training-ready Parquet dataset (per-split ``slides.parquet`` +
 
 import shutil
 import tempfile
-import time
 from pathlib import Path
 
 import hydra
@@ -55,68 +54,44 @@ def join_embeddings(
     embedding_run_id: str,
     embedding_split: str,
 ) -> tuple[pa.Table, int]:
-    """Join filtered tile metadata with embeddings on (slide_id, x, y) using Arrow join.
+    """Join filtered tile metadata with embeddings on (slide_id, x, y).
 
-    Stays entirely in Arrow to avoid the slow fixed-size-list to_pandas() conversion
-    on the embedding column.
+    Stays in Arrow throughout to avoid the very slow list<double> -> pandas
+    conversion. Acero's join engine doesn't accept list columns in non-key
+    fields, so we join on keys plus a synthetic row index, then pull embeddings
+    via take(). The embedding column is cast per chunk to large_list to avoid
+    int32 offset overflow that bites take() when chunks are concatenated.
     """
-    t0 = time.time()
     emb_dir = mlflow.artifacts.download_artifacts(
         run_id=embedding_run_id, artifact_path=f"{embedding_split}/tiles"
     )
-    print(f"[timing] download embeddings: {time.time() - t0:.1f}s", flush=True)
+    emb_table = pads.dataset(emb_dir, format="parquet").to_table(
+        columns=["slide_id", "x", "y", "embedding"]
+    )
 
-    t0 = time.time()
-    emb_ds = pads.dataset(emb_dir, format="parquet")
-    print(f"[timing] embedding dataset has {emb_ds.count_rows()} rows", flush=True)
-    emb_table = emb_ds.to_table(columns=["slide_id", "x", "y", "embedding"])
-    print(f"[timing] to_table: {time.time() - t0:.1f}s", flush=True)
-
-    # Arrow Acero join doesn't support list<double> in non-key fields, so join on
-    # keys only using a row-index column, then pull embeddings via take().
     emb_col = emb_table.column("embedding")
-    print(f"[timing] embedding column type={emb_col.type}, num_chunks={emb_col.num_chunks}", flush=True)
-
-    # Cast per chunk to large_list to avoid the int32 offset overflow that hits
-    # when take() concatenates chunks of list<double>. Per-chunk casts touch
-    # the offset buffer only (each chunk individually fits int32).
-    t0 = time.time()
     if pa.types.is_list(emb_col.type):
         target_type = pa.large_list(emb_col.type.value_type)
-        new_chunks = [c.cast(target_type) for c in emb_col.chunks]
-        emb_col = pa.chunked_array(new_chunks, type=target_type)
-        del new_chunks
-    print(f"[timing] cast embedding to large_list: {time.time() - t0:.1f}s", flush=True)
+        emb_col = pa.chunked_array(
+            [c.cast(target_type) for c in emb_col.chunks], type=target_type
+        )
 
-    t0 = time.time()
     emb_idx = pa.array(range(emb_table.num_rows), type=pa.int32())
     emb_keys = emb_table.drop(["embedding"]).append_column("_emb_idx", emb_idx)
     del emb_table, emb_idx
-    print(f"[timing] build emb_keys: {time.time() - t0:.1f}s", flush=True)
 
-    t0 = time.time()
-    joined_keys = tiles_table.join(emb_keys, keys=["slide_id", "x", "y"], join_type="inner")
+    joined_keys = tiles_table.join(
+        emb_keys, keys=["slide_id", "x", "y"], join_type="inner"
+    )
     del emb_keys
-    print(f"[timing] arrow key-join: {time.time() - t0:.1f}s  rows={joined_keys.num_rows}", flush=True)
 
-    t0 = time.time()
-    emb_array = emb_col.combine_chunks()
-    del emb_col
-    print(f"[timing] combine_chunks: {time.time() - t0:.1f}s", flush=True)
-
-    t0 = time.time()
     indices = joined_keys.column("_emb_idx")
     if isinstance(indices, pa.ChunkedArray):
         indices = indices.combine_chunks()
-    embeddings = emb_array.take(indices)
-    del emb_array
-    print(f"[timing] take embeddings: {time.time() - t0:.1f}s", flush=True)
+    embeddings = emb_col.combine_chunks().take(indices)
+    del emb_col
 
-    t0 = time.time()
     joined = joined_keys.drop(["_emb_idx"]).append_column("embedding", embeddings)
-    del joined_keys, embeddings
-    print(f"[timing] assemble joined table: {time.time() - t0:.1f}s  rows={joined.num_rows}", flush=True)
-
     dropped_no_embedding = tiles_table.num_rows - joined.num_rows
     return joined, dropped_no_embedding
 
@@ -131,14 +106,12 @@ def process_split(
     output_split_dir: Path,
     derive: bool,
 ) -> dict[str, int]:
-    print(f"[{split_name}] downloading src tiles...", flush=True)
-    t0 = time.time()
+    print(f"[{split_name}] downloading source tiles", flush=True)
     src_local = mlflow.artifacts.download_artifacts(
         run_id=src_run_id, artifact_path=src_artifact_path
     )
     df = pads.dataset(src_local, format="parquet").to_table().to_pandas()
     input_count = len(df)
-    print(f"[{split_name}] src tiles loaded: {input_count} rows  {time.time() - t0:.1f}s", flush=True)
 
     roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
     if not roi_cols:
@@ -173,12 +146,18 @@ def process_split(
         c for c in df.columns if c.startswith(("roi_coverage_", "tile_coverage_"))
     ]
     df = df.drop(columns=drop_cols)
-    print(f"[{split_name}] after thresholds: {after_class_threshold} rows, joining embeddings...", flush=True)
+    print(
+        f"[{split_name}] {input_count} -> {after_tissue_filter} (tissue) "
+        f"-> {after_class_threshold} (class threshold), joining embeddings",
+        flush=True,
+    )
 
     tiles_table = pa.Table.from_pandas(df, preserve_index=False)
     del df
 
-    merged_table, dropped_no_embedding = join_embeddings(tiles_table, embedding_run_id, split_name)
+    merged_table, dropped_no_embedding = join_embeddings(
+        tiles_table, embedding_run_id, split_name
+    )
     del tiles_table
     if dropped_no_embedding != 0:
         print(
@@ -187,23 +166,21 @@ def process_split(
             flush=True,
         )
 
-    t0 = time.time()
-    sort_indices = pc.sort_indices(merged_table, sort_keys=[("slide_id", "ascending")])
+    sort_indices = pc.sort_indices(
+        merged_table, sort_keys=[("slide_id", "ascending")]
+    )
     merged_table = merged_table.take(sort_indices)
-    print(f"[{split_name}] sort: {time.time() - t0:.1f}s", flush=True)
 
     output_split_dir.mkdir(parents=True, exist_ok=True)
-    t0 = time.time()
     pq.write_table(merged_table, str(output_split_dir / "tiles.parquet"))
-    print(f"[{split_name}] write parquet: {time.time() - t0:.1f}s", flush=True)
 
-    print(f"[{split_name}] downloading slides.parquet...", flush=True)
     slides_local = mlflow.artifacts.download_artifacts(
         run_id=embedding_run_id, artifact_path=f"{split_name}/slides.parquet"
     )
     shutil.copy(slides_local, output_split_dir / "slides.parquet")
 
     log_label_distributions(split_name, merged_table)
+    print(f"[{split_name}] wrote {merged_table.num_rows} rows", flush=True)
 
     return {
         "input_count": input_count,

@@ -5,7 +5,7 @@ submit_job(
     job_name="tissue-classification-embedding-dataset",
     username=...,
     cpu=8,
-    memory="32Gi",
+    memory="64Gi",
     gpu=None,
     public=False,
     script=[
