@@ -74,33 +74,35 @@ def process_slide(
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
     tiling_run_id = config.dataset.mlflow_artifacts.tiling_run_id
+    filter_tiles_run_id = config.dataset.mlflow_artifacts.filter_tiles_run_id
     tile_percentage_cols: list[str] = list(config.tile_percentage_cols)
 
-    slides_path = mlflow.artifacts.download_artifacts(
-        run_id=tiling_run_id,
-        artifact_path=config.slides_artifact_path,
-    )
-    tiles_path = mlflow.artifacts.download_artifacts(
-        run_id=tiling_run_id,
-        artifact_path=config.tiles_artifact_path,
-    )
-    slides = pd.read_parquet(slides_path)
-
-    items = cast("list[dict[str, Any]]", slides.to_dict(orient="records"))
-
-    with TemporaryDirectory() as output_dir:
-        Path(output_dir, "outlines").mkdir()
-        for slide in tqdm(items):
-            process_slide(
-                slide,
-                output_dir=output_dir,
-                tile_percentage_cols=tile_percentage_cols,
-                tiles_path=tiles_path,
-            )
-
-        logger.log_artifacts(
-            local_dir=output_dir, artifact_path=config.mlflow_artifact_path
+    for split_name in ("train", "test"):
+        slides_path = mlflow.artifacts.download_artifacts(
+            run_id=tiling_run_id,
+            artifact_path=f"{split_name}_split/slides.parquet",
         )
+        tiles_path = mlflow.artifacts.download_artifacts(
+            run_id=filter_tiles_run_id,
+            artifact_path=f"filter_tiles/{split_name}_tiles.parquet",
+        )
+        slides = pd.read_parquet(slides_path)
+        items = cast("list[dict[str, Any]]", slides.to_dict(orient="records"))
+
+        with TemporaryDirectory() as output_dir:
+            Path(output_dir, "outlines").mkdir()
+            for slide in tqdm(items, desc=split_name):
+                process_slide(
+                    slide,
+                    output_dir=output_dir,
+                    tile_percentage_cols=tile_percentage_cols,
+                    tiles_path=tiles_path,
+                )
+
+            logger.log_artifacts(
+                local_dir=output_dir,
+                artifact_path=f"{config.mlflow_artifact_path}/{split_name}_split",
+            )
 
 
 if __name__ == "__main__":

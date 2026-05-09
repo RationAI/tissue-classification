@@ -25,6 +25,10 @@ dependencies = [
     "numpy>=2.3.5",
     "rationai-tiling>=1.1.1",
     "tifffile>=2025.12.20",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "timm>=1.0.0",
+    "einops>=0.8.0",
     "matplotlib>=3.10.7",
     "pyarrow>=19.0.1",
     "datasets>=4.0.0",
@@ -40,7 +44,7 @@ dev = [
 
 [tool.uv.sources]
 rationai-mlkit = { git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/mlkit.git" }
-rationai-sdk = { git = "https://gitlab.ics.muni.cz/rationai/infrastructure/rationai-sdk-python.git" }
+rationai-sdk = { git = "https://github.com/RationAI/rationai-sdk-python.git" }
 rationai-tiling = { git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/tiling.git" }
 
 [tool.uv]
