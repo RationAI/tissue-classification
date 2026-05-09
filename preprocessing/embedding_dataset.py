@@ -15,7 +15,10 @@ import hydra
 import mlflow
 import mlflow.artifacts
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.dataset as pads
+import pyarrow.parquet as pq
 from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
@@ -48,11 +51,15 @@ def apply_thresholds(
 
 
 def join_embeddings(
-    tiles_df: pd.DataFrame,
+    tiles_table: pa.Table,
     embedding_run_id: str,
     embedding_split: str,
-) -> tuple[pd.DataFrame, int]:
-    """Join filtered tile metadata with embeddings on (slide_id, x, y)."""
+) -> tuple[pa.Table, int]:
+    """Join filtered tile metadata with embeddings on (slide_id, x, y) using Arrow join.
+
+    Stays entirely in Arrow to avoid the slow fixed-size-list to_pandas() conversion
+    on the embedding column.
+    """
     t0 = time.time()
     emb_dir = mlflow.artifacts.download_artifacts(
         run_id=embedding_run_id, artifact_path=f"{embedding_split}/tiles"
@@ -66,17 +73,12 @@ def join_embeddings(
     print(f"[timing] to_table: {time.time() - t0:.1f}s", flush=True)
 
     t0 = time.time()
-    emb_df = emb_table.to_pandas()
+    joined = tiles_table.join(emb_table, keys=["slide_id", "x", "y"], join_type="inner")
     del emb_table
-    print(f"[timing] to_pandas: {time.time() - t0:.1f}s  shape={emb_df.shape}", flush=True)
+    print(f"[timing] arrow join: {time.time() - t0:.1f}s  rows={joined.num_rows}", flush=True)
 
-    t0 = time.time()
-    merged = tiles_df.merge(emb_df, on=["slide_id", "x", "y"], how="inner")
-    print(f"[timing] merge: {time.time() - t0:.1f}s  shape={merged.shape}", flush=True)
-    del emb_df
-
-    dropped_no_embedding = len(tiles_df) - len(merged)
-    return merged, dropped_no_embedding
+    dropped_no_embedding = tiles_table.num_rows - joined.num_rows
+    return joined, dropped_no_embedding
 
 
 def process_split(
@@ -133,7 +135,11 @@ def process_split(
     df = df.drop(columns=drop_cols)
     print(f"[{split_name}] after thresholds: {after_class_threshold} rows, joining embeddings...", flush=True)
 
-    merged, dropped_no_embedding = join_embeddings(df, embedding_run_id, split_name)
+    tiles_table = pa.Table.from_pandas(df, preserve_index=False)
+    del df
+
+    merged_table, dropped_no_embedding = join_embeddings(tiles_table, embedding_run_id, split_name)
+    del tiles_table
     if dropped_no_embedding != 0:
         print(
             f"WARNING: {dropped_no_embedding} tiles in split '{split_name}' have "
@@ -142,12 +148,13 @@ def process_split(
         )
 
     t0 = time.time()
-    merged = merged.sort_values("slide_id", kind="stable").reset_index(drop=True)
+    sort_indices = pc.sort_indices(merged_table, sort_keys=[("slide_id", "ascending")])
+    merged_table = merged_table.take(sort_indices)
     print(f"[{split_name}] sort: {time.time() - t0:.1f}s", flush=True)
 
     output_split_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    merged.to_parquet(output_split_dir / "tiles.parquet", index=False)
+    pq.write_table(merged_table, str(output_split_dir / "tiles.parquet"))
     print(f"[{split_name}] write parquet: {time.time() - t0:.1f}s", flush=True)
 
     print(f"[{split_name}] downloading slides.parquet...", flush=True)
@@ -156,18 +163,22 @@ def process_split(
     )
     shutil.copy(slides_local, output_split_dir / "slides.parquet")
 
-    log_label_distributions(split_name, merged)
+    log_label_distributions(split_name, merged_table)
 
     return {
         "input_count": input_count,
         "after_tissue_filter": after_tissue_filter,
         "after_class_threshold": after_class_threshold,
-        "after_join": len(merged),
+        "after_join": merged_table.num_rows,
         "dropped_no_embedding": dropped_no_embedding,
     }
 
 
-def log_label_distributions(split_name: str, df: pd.DataFrame) -> None:
+def log_label_distributions(split_name: str, table: pa.Table) -> None:
+    has_fold = "fold" in table.schema.names
+    cols = ["label", "fold"] if has_fold else ["label"]
+    df = table.select(cols).to_pandas()
+
     label_dist = (
         df["label"].value_counts().rename_axis("label").reset_index(name="count")
     )
@@ -176,7 +187,7 @@ def log_label_distributions(split_name: str, df: pd.DataFrame) -> None:
         artifact_file=f"fold_statistics/{split_name}_label_distribution.json",
     )
 
-    if "fold" in df.columns:
+    if has_fold:
         fold_dist = (
             df.groupby(["fold", "label"]).size().unstack(fill_value=0).reset_index()
         )
