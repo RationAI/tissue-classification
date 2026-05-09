@@ -72,9 +72,18 @@ def join_embeddings(
     emb_table = emb_ds.to_table(columns=["slide_id", "x", "y", "embedding"])
     print(f"[timing] to_table: {time.time() - t0:.1f}s", flush=True)
 
+    # Arrow Acero join doesn't support list<double> in non-key fields, so join on
+    # keys only using a row-index column, then pull embeddings via take().
     t0 = time.time()
-    joined = tiles_table.join(emb_table, keys=["slide_id", "x", "y"], join_type="inner")
-    del emb_table
+    emb_idx = pa.array(range(emb_table.num_rows), type=pa.int32())
+    emb_keys = emb_table.drop(["embedding"]).append_column("_emb_idx", emb_idx)
+
+    joined_keys = tiles_table.join(emb_keys, keys=["slide_id", "x", "y"], join_type="inner")
+    embeddings = emb_table.column("embedding").take(joined_keys.column("_emb_idx"))
+    del emb_table, emb_keys, emb_idx
+
+    joined = joined_keys.drop(["_emb_idx"]).append_column("embedding", embeddings)
+    del joined_keys, embeddings
     print(f"[timing] arrow join: {time.time() - t0:.1f}s  rows={joined.num_rows}", flush=True)
 
     dropped_no_embedding = tiles_table.num_rows - joined.num_rows
