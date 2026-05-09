@@ -1,0 +1,15 @@
+# @package _global_
+
+model: ???
+output_dir: ${project_path}/embeddings
+concurrency: 512
+block_size: 2048
+rows_per_file: 5000
+
+metadata:
+  run_name: "Embeddings: ${model}"
+  description: Tile embeddings using model ${model}
+  hyperparams:
+    model: ${model}
+    concurrency: ${concurrency}
+    block_size: ${block_size}
