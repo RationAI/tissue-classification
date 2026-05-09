@@ -132,6 +132,15 @@ def process_split(
         lbl, tp = compute_label_and_tissue_prop(df, roi_cols)
         df["label"] = lbl
         df["tissue_prop"] = tp
+    else:
+        required = {"label", "tissue_prop"}
+        missing_required = required - set(df.columns)
+        if missing_required:
+            raise RuntimeError(
+                f"Source split '{split_name}' (derive=False) is missing required "
+                f"columns {sorted(missing_required)} in {src_artifact_path}. "
+                "Expected the kfold_split artifact, which writes label/tissue_prop/fold."
+            )
 
     df, after_tissue_filter = apply_thresholds(
         df, tissue_prop_min, thresholds, roi_cols
