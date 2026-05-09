@@ -74,13 +74,25 @@ def join_embeddings(
 
     # Arrow Acero join doesn't support list<double> in non-key fields, so join on
     # keys only using a row-index column, then pull embeddings via take().
+    # Cast embedding to large_list first: 1.1M rows * 768 doubles overflows int32
+    # list offsets when chunks are concatenated by take().
     t0 = time.time()
+    emb_col = emb_table.column("embedding")
+    if pa.types.is_list(emb_col.type):
+        emb_col = emb_col.cast(pa.large_list(emb_col.type.value_type))
+    elif pa.types.is_fixed_size_list(emb_col.type):
+        pass  # fixed_size_list has no offsets, no overflow risk
+    else:
+        emb_col = emb_col.cast(pa.large_list(pa.float64()))
+
     emb_idx = pa.array(range(emb_table.num_rows), type=pa.int32())
     emb_keys = emb_table.drop(["embedding"]).append_column("_emb_idx", emb_idx)
+    del emb_table, emb_idx
 
     joined_keys = tiles_table.join(emb_keys, keys=["slide_id", "x", "y"], join_type="inner")
-    embeddings = emb_table.column("embedding").take(joined_keys.column("_emb_idx"))
-    del emb_table, emb_keys, emb_idx
+    del emb_keys
+    embeddings = emb_col.take(joined_keys.column("_emb_idx"))
+    del emb_col
 
     joined = joined_keys.drop(["_emb_idx"]).append_column("embedding", embeddings)
     del joined_keys, embeddings
