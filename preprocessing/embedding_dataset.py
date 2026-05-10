@@ -8,6 +8,7 @@ emits a training-ready Parquet dataset (per-split ``slides.parquet`` +
 
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 import hydra
@@ -80,16 +81,29 @@ def join_embeddings(
     emb_keys = emb_table.drop(["embedding"]).append_column("_emb_idx", emb_idx)
     del emb_table, emb_idx
 
+    t = time.time()
     joined_keys = tiles_table.join(
         emb_keys, keys=["slide_id", "x", "y"], join_type="inner"
     )
     del emb_keys
+    print(
+        f"[join] arrow key-join: {time.time() - t:.1f}s rows={joined_keys.num_rows}",
+        flush=True,
+    )
 
     indices = joined_keys.column("_emb_idx")
     if isinstance(indices, pa.ChunkedArray):
         indices = indices.combine_chunks()
-    embeddings = emb_col.combine_chunks().take(indices)
+
+    t = time.time()
+    emb_contig = emb_col.combine_chunks()
     del emb_col
+    print(f"[join] combine_chunks: {time.time() - t:.1f}s", flush=True)
+
+    t = time.time()
+    embeddings = emb_contig.take(indices)
+    del emb_contig
+    print(f"[join] take: {time.time() - t:.1f}s", flush=True)
 
     joined = joined_keys.drop(["_emb_idx"]).append_column("embedding", embeddings)
     dropped_no_embedding = tiles_table.num_rows - joined.num_rows
