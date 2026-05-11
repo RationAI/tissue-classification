@@ -32,8 +32,7 @@ def apply_thresholds(
     thresholds: dict[str, float],
     roi_cols: list[str],
 ) -> tuple[pd.DataFrame, int, int]:
-    """Filter tiles by tissue, drop multi-annotation tiles, then apply
-    argmax-then-threshold.
+    """Filter tiles by tissue, drop multi-annotation tiles, then apply argmax-then-threshold.
 
     Returns ``(filtered_df, after_tissue_count, after_single_class_count)``.
     """
