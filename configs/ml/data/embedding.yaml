@@ -1,0 +1,24 @@
+# @package _global_
+
+data:
+  batch_size: 1024
+  num_workers: 4
+
+  train:
+    _target_: ml.data.datasets.EmbeddingTilesDataset
+    path_or_uri: ${train_tiles_uri}
+    class_indices: ${class_indices}
+    exclude_folds:
+      - ${val_fold}
+
+  val:
+    _target_: ml.data.datasets.EmbeddingTilesDataset
+    path_or_uri: ${train_tiles_uri}
+    class_indices: ${class_indices}
+    include_folds:
+      - ${val_fold}
+
+  test:
+    _target_: ml.data.datasets.EmbeddingTilesDataset
+    path_or_uri: ${test_tiles_uri}
+    class_indices: ${class_indices}

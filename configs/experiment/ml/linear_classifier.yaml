@@ -1,0 +1,28 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - /class_mapping: collapse_alterations_to_other
+  - /ml/trainer: default
+  - /ml/data: embedding
+  - /ml/model: linear_classifier
+  - _self_
+
+mode: fit
+
+embedding_dataset_run_id: ${dataset.mlflow_artifacts.embedding_dataset_run_id}
+train_tiles_uri: runs:/${embedding_dataset_run_id}/embedding_dataset/train/tiles.parquet
+test_tiles_uri: runs:/${embedding_dataset_run_id}/embedding_dataset/test/tiles.parquet
+val_fold: 0
+
+mlflow_artifact_path: linear_classifier
+
+metadata:
+  run_name: Linear Classifier ${dataset.name} fold=${val_fold}
+  description: "Linear probe over frozen Virchow2 embeddings produced by embedding_dataset run ${embedding_dataset_run_id}."
+  hyperparams:
+    embedding_dataset_run_id: ${embedding_dataset_run_id}
+    val_fold: ${val_fold}
+    learning_rate: ${model.learning_rate}
+    weight_decay: ${model.weight_decay}
+    batch_size: ${data.batch_size}

@@ -33,14 +33,17 @@ def apply_thresholds(
     thresholds: dict[str, float],
     roi_cols: list[str],
 ) -> tuple[pd.DataFrame, int]:
-    """Filter df by tissue_prop_min, then keep tiles where ANY class meets its
-    threshold; among passing classes, the highest-coverage one becomes the label.
+    """Filter tiles by tissue + per-class thresholds and rewrite labels.
+
+    Filters ``df`` by ``tissue_prop_min``, then keeps tiles where ANY class
+    meets its threshold; among passing classes, the highest-coverage one
+    becomes the label.
 
     Returns ``(filtered_df, after_tissue_count)`` so the caller can log both
     intermediate counts. The returned df has its ``label`` column rewritten to
     reflect the argmax-over-passers rule.
     """
-    df = df[df["tissue_prop"] >= tissue_prop_min]
+    df = df.loc[df["tissue_prop"] >= tissue_prop_min]
     after_tissue = len(df)
     if df.empty:
         return df, after_tissue
@@ -55,7 +58,7 @@ def apply_thresholds(
     label_idx = masked.argmax(axis=1)
     new_labels = class_names[label_idx]
 
-    out = df[keep].copy()
+    out = df.loc[pd.Series(keep, index=df.index)].copy()
     out["label"] = new_labels[keep]
     return out, after_tissue
 
