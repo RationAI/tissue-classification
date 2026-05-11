@@ -1,6 +1,6 @@
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 import mlflow
 import numpy as np
@@ -83,9 +83,11 @@ class MetaArch(LightningModule):
 
     def setup(self, stage: str) -> None:
         if stage == "fit":
-            labels = self.trainer.datamodule.train.labels
+            datamodule = cast(Any, self.trainer).datamodule
+            labels = datamodule.train.labels
             num_classes = len(self.class_names)
             counts = np.bincount(labels, minlength=num_classes).astype(float)
+            counts = np.maximum(counts, 1.0)
             weights = len(labels) / (num_classes * counts)
             self.criterion = nn.CrossEntropyLoss(
                 weight=torch.tensor(weights, dtype=torch.float32)

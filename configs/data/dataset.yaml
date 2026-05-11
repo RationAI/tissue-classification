@@ -15,8 +15,7 @@ dataset:
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
     filter_tiles_run_id: "4e8f5d3c82124ea5a8f871a42d3ed9ba"
     kfold_run_id: "850c81506684450b9af92296acfd045a"
-    embedding_run_id: "5f323d5ef5a74026846ecbe8fbc007fb"
-    embedding_dataset_run_id: "b4a937ef6b334533807f08a191083401"
+    embedding_run_id: "c325e3a5033b4077b6febb0e3e6b0bd6"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
     tissue_stats_run_id: "16ae2d003d88471b924e5f332415232a"
 

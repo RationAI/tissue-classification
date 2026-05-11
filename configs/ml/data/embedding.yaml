@@ -6,19 +6,28 @@ data:
 
   train:
     _target_: ml.data.datasets.EmbeddingTilesDataset
-    path_or_uri: ${train_tiles_uri}
+    embedding_uri: ${train_embedding_uri}
+    metadata_uri: ${train_metadata_uri}
     class_indices: ${class_indices}
+    thresholds: ${thresholds}
+    tissue_prop_min: ${tissue_prop_min}
     exclude_folds:
       - ${val_fold}
 
   val:
     _target_: ml.data.datasets.EmbeddingTilesDataset
-    path_or_uri: ${train_tiles_uri}
+    embedding_uri: ${train_embedding_uri}
+    metadata_uri: ${train_metadata_uri}
     class_indices: ${class_indices}
+    thresholds: ${thresholds}
+    tissue_prop_min: ${tissue_prop_min}
     include_folds:
       - ${val_fold}
 
   test:
     _target_: ml.data.datasets.EmbeddingTilesDataset
-    path_or_uri: ${test_tiles_uri}
+    embedding_uri: ${test_embedding_uri}
+    metadata_uri: ${test_metadata_uri}
     class_indices: ${class_indices}
+    thresholds: ${thresholds}
+    tissue_prop_min: ${tissue_prop_min}

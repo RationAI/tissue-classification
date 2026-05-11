@@ -19,8 +19,8 @@ dependencies = [
     "tqdm>=4.66.0",
     "rationai-sdk",
     "ratiopath>=1.2.0",
-    "pyarrow>=19.0.0",
-    "datasets>=3.0.0",
+    "pyarrow>=19.0.1",
+    "datasets>=4.0.0",
     "scikit-learn>=1.8.0",
     "numpy>=2.3.5",
     "rationai-tiling>=1.1.1",
@@ -32,8 +32,6 @@ dependencies = [
     "timm>=1.0.0",
     "einops>=0.8.0",
     "matplotlib>=3.10.7",
-    "pyarrow>=19.0.1",
-    "datasets>=4.0.0",
 ]
 
 [dependency-groups]
