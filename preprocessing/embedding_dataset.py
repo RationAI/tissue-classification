@@ -84,7 +84,7 @@ def join_embeddings(
             [c.cast(target_type) for c in emb_col.chunks], type=target_type
         )
 
-    emb_idx = pa.array(range(emb_table.num_rows), type=pa.int32())
+    emb_idx = pa.array(range(emb_table.num_rows), type=pa.int64())
     emb_keys = emb_table.drop(["embedding"]).append_column("_emb_idx", emb_idx)
     del emb_table, emb_idx
 
