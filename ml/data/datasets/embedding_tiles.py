@@ -116,14 +116,16 @@ class EmbeddingTilesDataset(Dataset[Sample]):
         indices = joined_keys.column("_emb_idx")
         if isinstance(indices, pa.ChunkedArray):
             indices = indices.combine_chunks()
-        emb_contig = emb_col.combine_chunks()
+        # take first on chunked array (avoids combine_chunks on full 1.1M rows)
+        embeddings_arrow = emb_col.take(indices)
+        print(f"[dataset] take done in {time.time() - t:.1f}s", flush=True)
+
+        t = time.time()
+        if isinstance(embeddings_arrow, pa.ChunkedArray):
+            embeddings_arrow = embeddings_arrow.combine_chunks()
         print(
             f"[dataset] combine_chunks done in {time.time() - t:.1f}s", flush=True
         )
-
-        t = time.time()
-        embeddings_arrow = emb_contig.take(indices)
-        print(f"[dataset] take done in {time.time() - t:.1f}s", flush=True)
 
         t = time.time()
         embedding_dim = len(embeddings_arrow.values) // len(embeddings_arrow)
