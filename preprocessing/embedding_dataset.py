@@ -14,7 +14,6 @@ from pathlib import Path
 import hydra
 import mlflow
 import mlflow.artifacts
-import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -32,32 +31,32 @@ def apply_thresholds(
     tissue_prop_min: float,
     thresholds: dict[str, float],
     roi_cols: list[str],
-) -> tuple[pd.DataFrame, int]:
-    """Filter df by tissue_prop_min, then keep tiles where ANY class meets its
-    threshold; among passing classes, the highest-coverage one becomes the label.
+) -> tuple[pd.DataFrame, int, int]:
+    """Filter tiles by tissue, drop multi-annotation tiles, then apply
+    argmax-then-threshold.
 
-    Returns ``(filtered_df, after_tissue_count)`` so the caller can log both
-    intermediate counts. The returned df has its ``label`` column rewritten to
-    reflect the argmax-over-passers rule.
+    Returns ``(filtered_df, after_tissue_count, after_single_class_count)``.
     """
-    df = df[df["tissue_prop"] >= tissue_prop_min]
+    df = df.loc[df["tissue_prop"] >= tissue_prop_min]
     after_tissue = len(df)
     if df.empty:
-        return df, after_tissue
+        return df, after_tissue, after_tissue
 
-    class_names = np.array([c.removeprefix("roi_coverage_") for c in roi_cols])
-    thr = np.array([thresholds[c] for c in class_names], dtype=float)
-    roi = df[roi_cols].to_numpy()
-    passes = roi >= thr
-    keep = passes.any(axis=1)
+    nonzero_classes = (df[roi_cols].to_numpy() > 0).sum(axis=1)
+    df = df.loc[pd.Series(nonzero_classes <= 1, index=df.index)]
+    after_single_class = len(df)
+    if df.empty:
+        return df, after_tissue, after_single_class
 
-    masked = np.where(passes, roi, -np.inf)
-    label_idx = masked.argmax(axis=1)
-    new_labels = class_names[label_idx]
+    roi_only = df[roi_cols]
+    dominant = roi_only.idxmax(axis=1).str.removeprefix("roi_coverage_")
+    dominant_value = roi_only.max(axis=1).to_numpy()
+    threshold_per_row = dominant.map(thresholds).to_numpy()
+    keep = dominant_value >= threshold_per_row
 
-    out = df[keep].copy()
-    out["label"] = new_labels[keep]
-    return out, after_tissue
+    out = df.loc[pd.Series(keep, index=df.index)].copy()
+    out["label"] = dominant.to_numpy()[keep]
+    return out, after_tissue, after_single_class
 
 
 def join_embeddings(
@@ -166,7 +165,7 @@ def process_split(
                 "Expected the kfold_split artifact, which writes label/tissue_prop/fold."
             )
 
-    df, after_tissue_filter = apply_thresholds(
+    df, after_tissue_filter, after_single_class = apply_thresholds(
         df, tissue_prop_min, thresholds, roi_cols
     )
     after_class_threshold = len(df)
@@ -181,6 +180,7 @@ def process_split(
     df = df.drop(columns=drop_cols)
     print(
         f"[{split_name}] {input_count} -> {after_tissue_filter} (tissue) "
+        f"-> {after_single_class} (single-class) "
         f"-> {after_class_threshold} (class threshold), joining embeddings",
         flush=True,
     )
@@ -216,6 +216,7 @@ def process_split(
     return {
         "input_count": input_count,
         "after_tissue_filter": after_tissue_filter,
+        "after_single_class": after_single_class,
         "after_class_threshold": after_class_threshold,
         "after_join": merged_table.num_rows,
         "dropped_no_embedding": dropped_no_embedding,
