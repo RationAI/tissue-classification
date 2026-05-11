@@ -28,10 +28,6 @@ class MetaArch(LightningModule):
     ``nn.Identity`` and ``decode_head`` is a single ``nn.Linear``.
     """
 
-    # TODO: support class_weights for CE loss when class distribution is heavily
-    # imbalanced. Inject either via config (list[float]) or compute from the
-    # train fold label distribution at setup().
-
     def __init__(
         self,
         backbone: nn.Module,
@@ -83,7 +79,7 @@ class MetaArch(LightningModule):
 
     def setup(self, stage: str) -> None:
         if stage == "fit":
-            datamodule = cast(Any, self.trainer).datamodule
+            datamodule = cast("Any", self.trainer).datamodule
             labels = datamodule.train.labels
             num_classes = len(self.class_names)
             counts = np.bincount(labels, minlength=num_classes).astype(float)

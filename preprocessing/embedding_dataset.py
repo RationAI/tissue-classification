@@ -8,7 +8,6 @@ emits a training-ready Parquet dataset (per-split ``slides.parquet`` +
 
 import shutil
 import tempfile
-import time
 from pathlib import Path
 
 import hydra
@@ -94,29 +93,19 @@ def join_embeddings(
     emb_keys = emb_table.drop(["embedding"]).append_column("_emb_idx", emb_idx)
     del emb_table, emb_idx
 
-    t = time.time()
     joined_keys = tiles_table.join(
         emb_keys, keys=["slide_id", "x", "y"], join_type="inner"
     )
     del emb_keys
-    print(
-        f"[join] arrow key-join: {time.time() - t:.1f}s rows={joined_keys.num_rows}",
-        flush=True,
-    )
 
     indices = joined_keys.column("_emb_idx")
     if isinstance(indices, pa.ChunkedArray):
         indices = indices.combine_chunks()
 
-    t = time.time()
     emb_contig = emb_col.combine_chunks()
     del emb_col
-    print(f"[join] combine_chunks: {time.time() - t:.1f}s", flush=True)
-
-    t = time.time()
     embeddings = emb_contig.take(indices)
     del emb_contig
-    print(f"[join] take: {time.time() - t:.1f}s", flush=True)
 
     joined = joined_keys.drop(["_emb_idx"]).append_column("embedding", embeddings)
     dropped_no_embedding = tiles_table.num_rows - joined.num_rows
@@ -133,7 +122,6 @@ def process_split(
     output_split_dir: Path,
     derive: bool,
 ) -> dict[str, int]:
-    print(f"[{split_name}] downloading source tiles", flush=True)
     src_local = mlflow.artifacts.download_artifacts(
         run_id=src_run_id, artifact_path=src_artifact_path
     )
@@ -182,11 +170,6 @@ def process_split(
         c for c in df.columns if c.startswith(("roi_coverage_", "tile_coverage_"))
     ]
     df = df.drop(columns=drop_cols)
-    print(
-        f"[{split_name}] {input_count} -> {after_tissue_filter} (tissue) "
-        f"-> {after_class_threshold} (class threshold), joining embeddings",
-        flush=True,
-    )
 
     tiles_table = pa.Table.from_pandas(df, preserve_index=False)
     del df
@@ -195,12 +178,6 @@ def process_split(
         tiles_table, embedding_run_id, split_name
     )
     del tiles_table
-    if dropped_no_embedding != 0:
-        print(
-            f"WARNING: {dropped_no_embedding} tiles in split '{split_name}' have "
-            "no matching embedding and were dropped on join.",
-            flush=True,
-        )
 
     sort_indices = pc.sort_indices(merged_table, sort_keys=[("slide_id", "ascending")])
     merged_table = merged_table.take(sort_indices)
@@ -214,7 +191,6 @@ def process_split(
     shutil.copy(slides_local, output_split_dir / "slides.parquet")
 
     log_label_distributions(split_name, merged_table)
-    print(f"[{split_name}] wrote {merged_table.num_rows} rows", flush=True)
 
     return {
         "input_count": input_count,

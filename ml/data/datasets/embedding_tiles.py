@@ -5,7 +5,6 @@ filter_tiles parquet for test) and applies tissue + per-class thresholds at
 load time to produce ``(embedding, class_index, slide_id)`` triples.
 """
 
-import time
 from pathlib import Path
 
 import numpy as np
@@ -43,15 +42,6 @@ class EmbeddingTilesDataset(Dataset[Sample]):
         include_folds: list[int] | None = None,
         exclude_folds: list[int] | None = None,
     ) -> None:
-        tag = (
-            f"include_folds={include_folds}"
-            if include_folds is not None
-            else f"exclude_folds={exclude_folds}"
-            if exclude_folds is not None
-            else "no_folds"
-        )
-        print(f"[dataset] init: {tag}, metadata={metadata_uri}", flush=True)
-        t0 = time.time()
         meta_df = self._filter_metadata(
             metadata_uri,
             thresholds,
@@ -59,60 +49,32 @@ class EmbeddingTilesDataset(Dataset[Sample]):
             include_folds,
             exclude_folds,
         )
-        print(
-            f"[dataset] metadata filtered: {len(meta_df)} rows "
-            f"({time.time() - t0:.1f}s)",
-            flush=True,
-        )
 
-        t = time.time()
         emb_dir = self._resolve_uri(embedding_uri)
-        print(
-            f"[dataset] embedding artifacts resolved in {time.time() - t:.1f}s",
-            flush=True,
-        )
-
-        t = time.time()
         emb_table = pads.dataset(emb_dir, format="parquet").to_table(
             columns=["slide_id", "x", "y", "embedding"]
         )
-        print(
-            f"[dataset] embedding parquet loaded: {emb_table.num_rows} rows "
-            f"({time.time() - t:.1f}s)",
-            flush=True,
-        )
 
-        t = time.time()
         emb_col = emb_table.column("embedding")
         if pa.types.is_list(emb_col.type):
             target_type = pa.large_list(emb_col.type.value_type)
             emb_col = pa.chunked_array(
                 [c.cast(target_type) for c in emb_col.chunks], type=target_type
             )
-        print(
-            f"[dataset] embedding column cast in {time.time() - t:.1f}s", flush=True
-        )
 
         emb_idx = pa.array(range(emb_table.num_rows), type=pa.int64())
         emb_keys = emb_table.drop(["embedding"]).append_column("_emb_idx", emb_idx)
         del emb_table
 
-        t = time.time()
         meta_table = pa.Table.from_pandas(meta_df, preserve_index=False)
         del meta_df
         joined_keys = meta_table.join(
             emb_keys, keys=["slide_id", "x", "y"], join_type="inner"
         )
         del emb_keys, meta_table
-        print(
-            f"[dataset] arrow join: {joined_keys.num_rows} rows "
-            f"({time.time() - t:.1f}s)",
-            flush=True,
-        )
         if joined_keys.num_rows == 0:
             raise RuntimeError("inner join with embeddings produced empty dataset")
 
-        t = time.time()
         _idx_col = joined_keys.column("_emb_idx")
         if isinstance(_idx_col, pa.ChunkedArray):
             _idx_col = _idx_col.combine_chunks()
@@ -142,12 +104,7 @@ class EmbeddingTilesDataset(Dataset[Sample]):
             )
             embeddings[sort_order[mask]] = chunk_np[local_idx]
         del emb_col
-        print(
-            f"[dataset] chunk-wise extraction done in {time.time() - t:.1f}s",
-            flush=True,
-        )
 
-        t = time.time()
         self.embeddings = embeddings
         labels = joined_keys.column("label").to_pandas()
         unknown = set(labels.unique()) - set(class_indices.keys())
@@ -157,11 +114,6 @@ class EmbeddingTilesDataset(Dataset[Sample]):
             )
         self.labels = labels.map(class_indices).to_numpy(dtype=np.int64)
         self.slide_ids = joined_keys.column("slide_id").to_pandas().to_numpy()
-        print(
-            f"[dataset] numpy conversion done in {time.time() - t:.1f}s, "
-            f"total={time.time() - t0:.1f}s",
-            flush=True,
-        )
 
     def __len__(self) -> int:
         return len(self.labels)
@@ -181,14 +133,8 @@ class EmbeddingTilesDataset(Dataset[Sample]):
         include_folds: list[int] | None,
         exclude_folds: list[int] | None,
     ) -> pd.DataFrame:
-        t = time.time()
         local = EmbeddingTilesDataset._resolve_uri(metadata_uri)
         df = pd.read_parquet(local)
-        print(
-            f"[dataset] metadata parquet loaded: {len(df)} rows "
-            f"({time.time() - t:.1f}s)",
-            flush=True,
-        )
 
         roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
         if not roi_cols:
