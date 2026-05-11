@@ -81,6 +81,18 @@ class MetaArch(LightningModule):
         self._test_slide_correct: dict[str, int] = defaultdict(int)
         self._test_slide_total: dict[str, int] = defaultdict(int)
 
+    def setup(self, stage: str) -> None:
+        if stage == "fit":
+            labels = self.trainer.datamodule.train.labels
+            num_classes = len(self.class_names)
+            counts = np.bincount(labels, minlength=num_classes).astype(float)
+            weights = len(labels) / (num_classes * counts)
+            self.criterion = nn.CrossEntropyLoss(
+                weight=torch.tensor(weights, dtype=torch.float32)
+            )
+            for cls, w in zip(self.class_names, weights.tolist(), strict=True):
+                mlflow.log_metric(f"class_weight/{cls}", w)
+
     def forward(self, x: Tensor) -> Outputs:
         features = self.backbone(x)
         return self.decode_head(features)

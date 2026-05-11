@@ -3,7 +3,6 @@
 Reads the parquet artifact produced by ``preprocessing.embedding_dataset``.
 """
 
-
 from pathlib import Path
 
 import numpy as np

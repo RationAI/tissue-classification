@@ -18,6 +18,7 @@ class ParquetPredictionWriter(BasePredictionWriter):
     parquet file with ``slide_id``, ``target``, ``pred``, ``prob_<class>``
     columns and logs it to the active MLflow run.
     """
+
     def __init__(self, output_filename: str = "predictions.parquet") -> None:
         super().__init__(write_interval="epoch")
         self.output_filename = output_filename
