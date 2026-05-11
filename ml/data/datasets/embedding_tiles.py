@@ -113,27 +113,42 @@ class EmbeddingTilesDataset(Dataset[Sample]):
             raise RuntimeError("inner join with embeddings produced empty dataset")
 
         t = time.time()
-        indices = joined_keys.column("_emb_idx")
-        if isinstance(indices, pa.ChunkedArray):
-            indices = indices.combine_chunks()
-        # take first on chunked array (avoids combine_chunks on full 1.1M rows)
-        embeddings_arrow = emb_col.take(indices)
-        print(f"[dataset] take done in {time.time() - t:.1f}s", flush=True)
+        _idx_col = joined_keys.column("_emb_idx")
+        if isinstance(_idx_col, pa.ChunkedArray):
+            _idx_col = _idx_col.combine_chunks()
+        indices_np = _idx_col.to_numpy()
 
-        t = time.time()
-        if isinstance(embeddings_arrow, pa.ChunkedArray):
-            embeddings_arrow = embeddings_arrow.combine_chunks()
+        first_chunk = emb_col.chunks[0]
+        embedding_dim = len(first_chunk.values) // len(first_chunk)
+
+        # sort indices for sequential per-chunk access; restore order afterwards
+        sort_order = np.argsort(indices_np)
+        sorted_indices = indices_np[sort_order]
+
+        chunk_offsets = np.concatenate(
+            [[0], np.cumsum([len(c) for c in emb_col.chunks])]
+        )
+        embeddings = np.empty((len(indices_np), embedding_dim), dtype=np.float32)
+        for ci, chunk in enumerate(emb_col.chunks):
+            lo, hi = chunk_offsets[ci], chunk_offsets[ci + 1]
+            mask = (sorted_indices >= lo) & (sorted_indices < hi)
+            if not mask.any():
+                continue
+            local_idx = sorted_indices[mask] - lo
+            chunk_np = (
+                chunk.values.to_numpy(zero_copy_only=False)
+                .reshape(len(chunk), embedding_dim)
+                .astype(np.float32)
+            )
+            embeddings[sort_order[mask]] = chunk_np[local_idx]
+        del emb_col
         print(
-            f"[dataset] combine_chunks done in {time.time() - t:.1f}s", flush=True
+            f"[dataset] chunk-wise extraction done in {time.time() - t:.1f}s",
+            flush=True,
         )
 
         t = time.time()
-        embedding_dim = len(embeddings_arrow.values) // len(embeddings_arrow)
-        self.embeddings = (
-            embeddings_arrow.values.to_numpy(zero_copy_only=False)
-            .astype(np.float32)
-            .reshape(len(embeddings_arrow), embedding_dim)
-        )
+        self.embeddings = embeddings
         labels = joined_keys.column("label").to_pandas()
         unknown = set(labels.unique()) - set(class_indices.keys())
         if unknown:
