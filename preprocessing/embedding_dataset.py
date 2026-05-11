@@ -14,6 +14,7 @@ from pathlib import Path
 import hydra
 import mlflow
 import mlflow.artifacts
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -32,22 +33,31 @@ def apply_thresholds(
     thresholds: dict[str, float],
     roi_cols: list[str],
 ) -> tuple[pd.DataFrame, int]:
-    """Filter df by tissue_prop_min then by per-dominant-class roi threshold.
+    """Filter df by tissue_prop_min, then keep tiles where ANY class meets its
+    threshold; among passing classes, the highest-coverage one becomes the label.
 
     Returns ``(filtered_df, after_tissue_count)`` so the caller can log both
-    intermediate counts.
+    intermediate counts. The returned df has its ``label`` column rewritten to
+    reflect the argmax-over-passers rule.
     """
     df = df[df["tissue_prop"] >= tissue_prop_min]
     after_tissue = len(df)
     if df.empty:
         return df, after_tissue
 
-    roi_only = df[roi_cols]
-    dominant = roi_only.idxmax(axis=1).str.removeprefix("roi_coverage_")
-    dominant_value = roi_only.max(axis=1).to_numpy()
-    threshold_per_row = dominant.map(thresholds).to_numpy()
-    keep = dominant_value >= threshold_per_row
-    return df[keep].copy(), after_tissue
+    class_names = np.array([c.removeprefix("roi_coverage_") for c in roi_cols])
+    thr = np.array([thresholds[c] for c in class_names], dtype=float)
+    roi = df[roi_cols].to_numpy()
+    passes = roi >= thr
+    keep = passes.any(axis=1)
+
+    masked = np.where(passes, roi, -np.inf)
+    label_idx = masked.argmax(axis=1)
+    new_labels = class_names[label_idx]
+
+    out = df[keep].copy()
+    out["label"] = new_labels[keep]
+    return out, after_tissue
 
 
 def join_embeddings(
