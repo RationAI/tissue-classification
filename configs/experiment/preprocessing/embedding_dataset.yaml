@@ -8,11 +8,11 @@ tissue_prop_min: 0.2
 thresholds:
   Nerve: 0.0
   Blood: 0.0
-  Connective-Tissue: 0.0
-  Fat: 0.0
-  Epithelium: 0.0
-  Muscle: 0.0
-  Other: 0.0
+  Connective-Tissue: 0.4
+  Fat: 0.5
+  Epithelium: 0.2
+  Muscle: 0.4
+  Other: 0.5
 
 metadata:
   run_name: Embedding dataset ${dataset.name}
