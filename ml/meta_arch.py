@@ -205,7 +205,9 @@ def _confmat_figure(
     matrix: np.ndarray, class_names: Iterable[str], title: str
 ) -> Figure:
     row_sums = matrix.sum(axis=1, keepdims=True)
-    normalized = np.divide(matrix, row_sums, where=row_sums > 0, out=np.zeros_like(matrix, dtype=float))
+    normalized = np.divide(
+        matrix, row_sums, where=row_sums > 0, out=np.zeros_like(matrix, dtype=float)
+    )
 
     fig, ax = plt.subplots(figsize=(6, 5))
     im = ax.imshow(normalized, cmap="Blues", vmin=0, vmax=1)
