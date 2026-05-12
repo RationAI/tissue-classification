@@ -22,27 +22,27 @@ from ml.typing import Input, Outputs
 
 
 class MetaArch(LightningModule):
-    """Top-level classification architecture: backbone + decode_head + criterion.
+    """Top-level classification architecture: backbone + decode_head.
 
     For linear probing on precomputed embeddings, ``backbone`` is typically
     ``nn.Identity`` and ``decode_head`` is a single ``nn.Linear``.
+    Criterion is class-weighted CrossEntropyLoss, computed from training labels in setup().
     """
 
     def __init__(
         self,
         backbone: nn.Module,
         decode_head: nn.Module,
-        criterion: nn.Module,
         class_indices: dict[str, int],
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
     ) -> None:
         super().__init__()
-        self.save_hyperparameters(ignore=["backbone", "decode_head", "criterion"])
+        self.save_hyperparameters(ignore=["backbone", "decode_head"])
 
         self.backbone = backbone
         self.decode_head = decode_head
-        self.criterion = criterion
+        self.criterion: nn.Module
 
         self.class_names = [
             n for n, _ in sorted(class_indices.items(), key=lambda kv: kv[1])
