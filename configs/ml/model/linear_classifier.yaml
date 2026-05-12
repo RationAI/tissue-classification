@@ -9,9 +9,6 @@ model:
     in_features: 2560
     out_features: ${len:${class_indices}}
 
-  criterion:
-    _target_: torch.nn.CrossEntropyLoss
-
   class_indices: ${class_indices}
 
   learning_rate: 1.0e-3
