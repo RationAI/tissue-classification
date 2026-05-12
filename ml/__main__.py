@@ -25,6 +25,9 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     data = hydra.utils.instantiate(config.data, _recursive_=False, _target_=DataModule)
     model = hydra.utils.instantiate(config.model, _target_=MetaArch)
     trainer = hydra.utils.instantiate(config.trainer, _target_=Trainer, logger=logger)
+    allowed_modes = ["fit", "test", "validate", "predict"]
+    if config.mode not in allowed_modes:
+        raise ValueError(f"Invalid mode {config.mode!r}. Allowed: {allowed_modes}")
     getattr(trainer, config.mode)(model, datamodule=data, ckpt_path=config.checkpoint)
     mlflow.end_run()
 

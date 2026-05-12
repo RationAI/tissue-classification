@@ -33,7 +33,10 @@ class DataModule(LightningDataModule):
             case "test":
                 self.test = instantiate(self.datasets["test"])
             case "predict":
-                self.predict = instantiate(self.datasets["predict"])
+                dataset_cfg = self.datasets.get("predict") or self.datasets.get("test")
+                if dataset_cfg is None:
+                    raise KeyError("Neither 'predict' nor 'test' dataset configured")
+                self.predict = instantiate(dataset_cfg)
 
     def train_dataloader(self) -> Iterable[Input]:
         return DataLoader(

@@ -1,6 +1,5 @@
 """Aggregate ``predict_step`` outputs and write them as a parquet artifact."""
 
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -22,19 +21,6 @@ class ParquetPredictionWriter(BasePredictionWriter):
     def __init__(self, output_filename: str = "predictions.parquet") -> None:
         super().__init__(write_interval="epoch")
         self.output_filename = output_filename
-        self._batches: list[dict[str, Any]] = []
-
-    def write_on_batch_end(
-        self,
-        trainer: pl.Trainer,
-        pl_module: pl.LightningModule,
-        prediction: dict[str, Any],
-        batch_indices: Sequence[int] | None,
-        batch: Any,
-        batch_idx: int,
-        dataloader_idx: int,
-    ) -> None:
-        self._batches.append(prediction)
 
     def write_on_epoch_end(
         self,
@@ -43,18 +29,23 @@ class ParquetPredictionWriter(BasePredictionWriter):
         predictions: Any,
         batch_indices: Any,
     ) -> None:
-        if not self._batches:
+        if trainer.global_rank != 0:
             return
 
         slide_ids: list[str] = []
         targets: list[int] = []
         preds: list[int] = []
         probs: list[np.ndarray] = []
-        for b in self._batches:
-            slide_ids.extend(b["slide_id"])
-            targets.extend(b["target"].tolist())
-            preds.extend(b["pred"].tolist())
-            probs.append(b["probs"].numpy())
+        for dataloader_preds in predictions:
+            for b in dataloader_preds:
+                slide_ids.extend(b["slide_id"])
+                targets.extend(b["target"].tolist())
+                preds.extend(b["pred"].tolist())
+                probs.append(b["probs"].numpy())
+
+        if not slide_ids:
+            return
+
         prob_matrix = np.concatenate(probs, axis=0)
 
         class_names = getattr(pl_module, "class_names", None)
@@ -74,5 +65,3 @@ class ParquetPredictionWriter(BasePredictionWriter):
         active = mlflow.active_run()
         if active is not None:
             mlflow.log_artifact(str(out_path), artifact_path="predictions")
-
-        self._batches.clear()
