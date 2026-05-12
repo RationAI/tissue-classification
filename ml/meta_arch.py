@@ -204,8 +204,11 @@ class MetaArch(LightningModule):
 def _confmat_figure(
     matrix: np.ndarray, class_names: Iterable[str], title: str
 ) -> Figure:
+    row_sums = matrix.sum(axis=1, keepdims=True)
+    normalized = np.divide(matrix, row_sums, where=row_sums > 0, out=np.zeros_like(matrix, dtype=float))
+
     fig, ax = plt.subplots(figsize=(6, 5))
-    im = ax.imshow(matrix, cmap="Blues")
+    im = ax.imshow(normalized, cmap="Blues", vmin=0, vmax=1)
     ax.set_title(title)
     ax.set_xlabel("Predicted")
     ax.set_ylabel("True")
@@ -222,7 +225,7 @@ def _confmat_figure(
                 str(matrix[i, j]),
                 ha="center",
                 va="center",
-                color="white" if matrix[i, j] > matrix.max() / 2 else "black",
+                color="white" if normalized[i, j] > 0.5 else "black",
                 fontsize=8,
             )
     fig.colorbar(im, ax=ax)
