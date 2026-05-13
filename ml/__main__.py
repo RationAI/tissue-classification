@@ -3,6 +3,7 @@ from random import randint
 import hydra
 import mlflow
 from lightning import seed_everything
+from mlflow.artifacts import download_artifacts
 from omegaconf import DictConfig, OmegaConf
 from rationai.mlkit import Trainer, autolog
 from rationai.mlkit.lightning.loggers import MLFlowLogger
@@ -28,8 +29,18 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     allowed_modes = ["fit", "test", "validate", "predict"]
     if config.mode not in allowed_modes:
         raise ValueError(f"Invalid mode {config.mode!r}. Allowed: {allowed_modes}")
-    getattr(trainer, config.mode)(model, datamodule=data, ckpt_path=config.checkpoint)
+    getattr(trainer, config.mode)(
+        model, datamodule=data, ckpt_path=_resolve_checkpoint(config.checkpoint)
+    )
     mlflow.end_run()
+
+
+def _resolve_checkpoint(checkpoint: str | None) -> str | None:
+    if checkpoint is None:
+        return None
+    if checkpoint.startswith(("mlflow-artifacts:/", "runs:/")):
+        return download_artifacts(artifact_uri=checkpoint)
+    return checkpoint
 
 
 if __name__ == "__main__":
