@@ -91,7 +91,9 @@ class MetaArch(LightningModule):
             for cls, w in zip(self.class_names, weights.tolist(), strict=True):
                 mlflow.log_metric(f"class_weight/{cls}", w)
         else:
-            self.criterion = nn.CrossEntropyLoss()
+            self.criterion = nn.CrossEntropyLoss(
+                weight=torch.ones(len(self.class_names), dtype=torch.float32)
+            )
 
     def forward(self, x: Tensor) -> Outputs:
         features = self.backbone(x)
