@@ -11,7 +11,8 @@ defaults:
 mode: fit
 
 embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_id}
-kfold_run_id: ${dataset.mlflow_artifacts.kfold_run_id}
+kfold_strategy: stratified
+kfold_run_id: ${dataset.mlflow_artifacts.stratified_kfold_run_id}
 filter_tiles_run_id: ${dataset.mlflow_artifacts.filter_tiles_run_id}
 
 train_embedding_uri: runs:/${embedding_run_id}/train/tiles
@@ -34,10 +35,11 @@ thresholds:
 mlflow_artifact_path: linear_classifier
 
 metadata:
-  run_name: Linear Classifier ${dataset.name} fold=${val_fold}
-  description: "Linear probe over frozen Virchow2 embeddings (run ${embedding_run_id}), kfold metadata ${kfold_run_id}."
+  run_name: Linear Classifier ${dataset.name} ${kfold_strategy} fold=${val_fold}
+  description: "Linear probe over frozen Virchow2 embeddings (run ${embedding_run_id}), ${kfold_strategy} kfold metadata ${kfold_run_id}."
   hyperparams:
     embedding_run_id: ${embedding_run_id}
+    kfold_strategy: ${kfold_strategy}
     kfold_run_id: ${kfold_run_id}
     filter_tiles_run_id: ${filter_tiles_run_id}
     val_fold: ${val_fold}
