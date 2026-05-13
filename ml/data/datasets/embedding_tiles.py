@@ -2,7 +2,7 @@
 
 Joins precomputed tile embeddings with tile metadata (k-fold parquet for train,
 filter_tiles parquet for test) and applies tissue + per-class thresholds at
-load time to produce ``(embedding, class_index, slide_id)`` triples.
+load time to produce ``(embedding, class_index, slide_id, x, y)`` samples.
 """
 
 from pathlib import Path
@@ -114,6 +114,8 @@ class EmbeddingTilesDataset(Dataset[Sample]):
             )
         self.labels = labels.map(class_indices).to_numpy(dtype=np.int64)
         self.slide_ids = joined_keys.column("slide_id").to_pandas().to_numpy()
+        self.xs = joined_keys.column("x").to_pandas().to_numpy(dtype=np.int64)
+        self.ys = joined_keys.column("y").to_pandas().to_numpy(dtype=np.int64)
 
     def __len__(self) -> int:
         return len(self.labels)
@@ -123,6 +125,8 @@ class EmbeddingTilesDataset(Dataset[Sample]):
             torch.from_numpy(self.embeddings[idx]),
             int(self.labels[idx]),
             str(self.slide_ids[idx]),
+            int(self.xs[idx]),
+            int(self.ys[idx]),
         )
 
     @staticmethod

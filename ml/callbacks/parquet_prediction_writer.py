@@ -33,12 +33,16 @@ class ParquetPredictionWriter(BasePredictionWriter):
             return
 
         slide_ids: list[str] = []
+        xs: list[int] = []
+        ys: list[int] = []
         targets: list[int] = []
         preds: list[int] = []
         probs: list[np.ndarray] = []
         for dataloader_preds in predictions:
             for b in dataloader_preds:
                 slide_ids.extend(b["slide_id"])
+                xs.extend(b["x"].tolist())
+                ys.extend(b["y"].tolist())
                 targets.extend(b["target"].tolist())
                 preds.extend(b["pred"].tolist())
                 probs.append(b["probs"].numpy())
@@ -55,7 +59,9 @@ class ParquetPredictionWriter(BasePredictionWriter):
             else [f"prob_{i}" for i in range(prob_matrix.shape[1])]
         )
 
-        df = pd.DataFrame({"slide_id": slide_ids, "target": targets, "pred": preds})
+        df = pd.DataFrame(
+            {"slide_id": slide_ids, "x": xs, "y": ys, "target": targets, "pred": preds}
+        )
         df = pd.concat([df, pd.DataFrame(prob_matrix, columns=prob_columns)], axis=1)
 
         out_path = Path(trainer.default_root_dir) / self.output_filename

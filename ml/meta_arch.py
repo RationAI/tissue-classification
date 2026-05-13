@@ -1,5 +1,7 @@
 from collections import defaultdict
 from collections.abc import Iterable
+from pathlib import Path
+from re import sub
 from typing import Any, cast
 
 import mlflow
@@ -19,6 +21,9 @@ from torchmetrics.classification import (
 )
 
 from ml.typing import Input, Outputs
+
+
+MAX_TEST_PREDICTION_MAPS = 20
 
 
 class MetaArch(LightningModule):
@@ -76,6 +81,7 @@ class MetaArch(LightningModule):
 
         self._test_slide_correct: dict[str, int] = defaultdict(int)
         self._test_slide_total: dict[str, int] = defaultdict(int)
+        self._test_tile_rows: list[dict[str, Any]] = []
 
     def setup(self, stage: str) -> None:
         if stage == "fit":
@@ -100,14 +106,14 @@ class MetaArch(LightningModule):
         return self.decode_head(features)
 
     def training_step(self, batch: Input, batch_idx: int) -> Tensor:
-        inputs, targets, _ = batch
+        inputs, targets, *_ = batch
         outputs = self(inputs)
         loss = self.criterion(outputs, targets)
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     def validation_step(self, batch: Input, batch_idx: int) -> None:
-        inputs, targets, _ = batch
+        inputs, targets, *_ = batch
         outputs = self(inputs)
         loss = self.criterion(outputs, targets)
         self.log("validation/loss", loss, on_epoch=True, prog_bar=True)
@@ -121,7 +127,7 @@ class MetaArch(LightningModule):
         self._log_confmat(self.val_confmat, "validation")
 
     def test_step(self, batch: Input, batch_idx: int) -> None:
-        inputs, targets, slide_ids = batch
+        inputs, targets, slide_ids, xs, ys = batch
         outputs = self(inputs)
         self.test_metrics.update(outputs, targets)
         self.test_per_class.update(outputs, targets)
@@ -133,23 +139,44 @@ class MetaArch(LightningModule):
         for slide_id, ok in zip(slide_ids, correct, strict=True):
             self._test_slide_correct[slide_id] += int(ok)
             self._test_slide_total[slide_id] += 1
+        self._test_tile_rows.extend(
+            {
+                "slide_id": slide_id,
+                "x": int(x),
+                "y": int(y),
+                "target": int(target),
+                "pred": int(pred),
+            }
+            for slide_id, x, y, target, pred in zip(
+                slide_ids,
+                xs.cpu().tolist(),
+                ys.cpu().tolist(),
+                targets.cpu().tolist(),
+                preds.cpu().tolist(),
+                strict=True,
+            )
+        )
 
     def on_test_epoch_end(self) -> None:
         self._log_per_class(self.test_per_class, "test")
         self._log_confmat(self.test_confmat, "test")
         self._log_per_slide_accuracy()
+        self._log_prediction_maps()
         self._test_slide_correct.clear()
         self._test_slide_total.clear()
+        self._test_tile_rows.clear()
 
     def predict_step(
         self, batch: Input, batch_idx: int, dataloader_idx: int = 0
     ) -> dict[str, Any]:
-        inputs, targets, slide_ids = batch
+        inputs, targets, slide_ids, xs, ys = batch
         outputs = self(inputs)
         probs = outputs.softmax(dim=1)
         preds = outputs.argmax(dim=1)
         return {
             "slide_id": list(slide_ids),
+            "x": xs.cpu(),
+            "y": ys.cpu(),
             "target": targets.cpu(),
             "pred": preds.cpu(),
             "probs": probs.cpu(),
@@ -204,6 +231,27 @@ class MetaArch(LightningModule):
             artifact_file="per_slide/test_tile_accuracy.parquet",
         )
 
+    def _log_prediction_maps(self) -> None:
+        if not self._test_tile_rows:
+            return
+        df = pd.DataFrame(self._test_tile_rows)
+        df["_correct"] = df["pred"] == df["target"]
+        slide_order = (
+            df.groupby("slide_id", sort=False)["_correct"]
+            .mean()
+            .sort_values()
+            .head(MAX_TEST_PREDICTION_MAPS)
+            .index
+        )
+        for slide_id in slide_order:
+            slide_df = df[df["slide_id"] == slide_id]
+            fig = _prediction_map_figure(slide_df, self.class_names)
+            artifact_file = f"prediction_maps/{_safe_filename(slide_id)}.png"
+            try:
+                mlflow.log_figure(fig, artifact_file=artifact_file)
+            finally:
+                plt.close(fig)
+
 
 def _confmat_figure(
     matrix: np.ndarray, class_names: Iterable[str], title: str
@@ -237,3 +285,61 @@ def _confmat_figure(
     fig.colorbar(im, ax=ax)
     fig.tight_layout()
     return fig
+
+
+def _prediction_map_figure(df: pd.DataFrame, class_names: list[str]) -> Figure:
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6), constrained_layout=True)
+    palette = plt.get_cmap("tab10", len(class_names))
+
+    axes[0].scatter(
+        df["x"],
+        df["y"],
+        c=df["pred"],
+        cmap=palette,
+        vmin=-0.5,
+        vmax=len(class_names) - 0.5,
+        marker="s",
+        s=4,
+        linewidths=0,
+    )
+    axes[0].set_title("Prediction")
+
+    correct = df["pred"].to_numpy() == df["target"].to_numpy()
+    axes[1].scatter(
+        df["x"],
+        df["y"],
+        c=np.where(correct, 0, 1),
+        cmap=plt.get_cmap("Set1", 2),
+        vmin=-0.5,
+        vmax=1.5,
+        marker="s",
+        s=4,
+        linewidths=0,
+    )
+    axes[1].set_title(f"Errors ({int((~correct).sum())}/{len(df)})")
+
+    handles = [
+        plt.Line2D(
+            [0],
+            [0],
+            marker="s",
+            color="w",
+            label=cls,
+            markerfacecolor=palette(i),
+            markersize=6,
+        )
+        for i, cls in enumerate(class_names)
+    ]
+    axes[0].legend(handles=handles, loc="upper left", bbox_to_anchor=(1.02, 1.0))
+
+    for ax in axes:
+        ax.set_aspect("equal", adjustable="box")
+        ax.invert_yaxis()
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+
+    return fig
+
+
+def _safe_filename(value: str) -> str:
+    return sub(r"[^A-Za-z0-9_.-]+", "_", Path(value).stem or value)
