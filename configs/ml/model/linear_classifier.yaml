@@ -11,5 +11,5 @@ model:
 
   class_indices: ${class_indices}
 
-  learning_rate: 1.0e-3
+  learning_rate: 1.0e-4
   weight_decay: 0.0

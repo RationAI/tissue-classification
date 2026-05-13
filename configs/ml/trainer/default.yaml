@@ -13,7 +13,7 @@ trainer:
       _target_: lightning.pytorch.callbacks.EarlyStopping
       monitor: validation/loss
       mode: min
-      patience: 5
+      patience: 2
     model_checkpoint:
       _target_: lightning.pytorch.callbacks.ModelCheckpoint
       monitor: validation/loss
