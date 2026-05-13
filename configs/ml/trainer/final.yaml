@@ -1,0 +1,23 @@
+# @package _global_
+
+trainer:
+  max_epochs: 6
+  accelerator: auto
+  devices: auto
+  precision: 32
+  log_every_n_steps: 50
+  deterministic: false
+
+  callbacks:
+    model_checkpoint:
+      _target_: lightning.pytorch.callbacks.ModelCheckpoint
+      save_last: true
+      save_top_k: 0
+      filename: "final-epoch={epoch}"
+      auto_insert_metric_name: false
+    lr_monitor:
+      _target_: lightning.pytorch.callbacks.LearningRateMonitor
+      logging_interval: epoch
+    prediction_writer:
+      _target_: ml.callbacks.ParquetPredictionWriter
+      output_filename: predictions.parquet

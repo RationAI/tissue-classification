@@ -27,7 +27,11 @@ class DataModule(LightningDataModule):
         match stage:
             case "fit":
                 self.train = instantiate(self.datasets["train"])
-                self.val = instantiate(self.datasets["val"])
+                self.val = (
+                    instantiate(self.datasets["val"])
+                    if self.datasets.get("val") is not None
+                    else None
+                )
             case "validate":
                 self.val = instantiate(self.datasets["val"])
             case "test":
@@ -48,7 +52,9 @@ class DataModule(LightningDataModule):
             persistent_workers=self.num_workers > 0,
         )
 
-    def val_dataloader(self) -> Iterable[Input]:
+    def val_dataloader(self) -> Iterable[Input] | None:
+        if self.val is None:
+            return None
         return DataLoader(
             self.val,
             batch_size=self.batch_size,

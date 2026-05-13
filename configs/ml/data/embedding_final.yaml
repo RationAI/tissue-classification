@@ -1,0 +1,21 @@
+# @package _global_
+
+data:
+  batch_size: 1024
+  num_workers: 4
+
+  train:
+    _target_: ml.data.datasets.EmbeddingTilesDataset
+    embedding_uri: ${train_embedding_uri}
+    metadata_uri: ${train_metadata_uri}
+    class_indices: ${class_indices}
+    thresholds: ${thresholds}
+    tissue_prop_min: ${tissue_prop_min}
+
+  test:
+    _target_: ml.data.datasets.EmbeddingTilesDataset
+    embedding_uri: ${test_embedding_uri}
+    metadata_uri: ${test_metadata_uri}
+    class_indices: ${class_indices}
+    thresholds: ${thresholds}
+    tissue_prop_min: ${tissue_prop_min}
