@@ -45,9 +45,9 @@ def drop_rare_class_slides(
     StratifiedGroupKFold requires each stratification class to be present in at
     least ``n_folds`` groups (slides). Rather than collapsing rare classes into a
     surrogate category — unreliable here because the upstream tissue/annotation
-    filter removes most background tiles — we drop entire slides whose dominant
-    label is rare. Lost tiles are bounded by definition (fewer than n_folds
-    slides per dropped class).
+    filter removes most background tiles — all tiles carrying a rare label are
+    dropped regardless of which slide they come from. Lost tiles are bounded by
+    definition (fewer than n_folds slides per dropped class).
     """
     pairs = pd.DataFrame({"slide": slide_ids, "label": labels}).drop_duplicates()
     slide_counts = pairs.groupby("label").size()
