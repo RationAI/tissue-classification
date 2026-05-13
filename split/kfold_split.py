@@ -10,7 +10,7 @@ from datasets import Dataset, load_dataset
 from omegaconf import DictConfig
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 
 def derive_labels(
@@ -35,6 +35,39 @@ def derive_labels(
         table.column("tissue_prop").to_numpy(zero_copy_only=False),
         table.column("slide_id").to_numpy(zero_copy_only=False),
     )
+
+
+def build_stratification_labels(labels: np.ndarray, n_folds: int) -> np.ndarray:
+    """Return a copy of labels with rare classes collapsed to 'background'.
+
+    StratifiedKFold requires at least n_folds samples per class. Classes with fewer
+    samples than that are relabeled as 'background' so the split can proceed. The
+    returned array is intended solely as the stratification target -- the caller
+    should keep the original labels array for storage and reporting.
+    """
+    unique, counts = np.unique(labels, return_counts=True)
+    rare = unique[counts < n_folds]
+    strat = labels.copy()
+    if len(rare) > 0:
+        print(
+            f"WARNING: {len(rare)} label(s) have fewer than {n_folds} tiles and will "
+            f"be collapsed into 'background' for stratification only: "
+            + ", ".join(f"{cls}({counts[unique == cls][0]})" for cls in rare),
+            flush=True,
+        )
+        strat[np.isin(strat, rare)] = "background"
+
+        background_count = int((strat == "background").sum())
+        if background_count < n_folds:
+            rare_breakdown = ", ".join(
+                f"{cls}({counts[unique == cls][0]})" for cls in rare
+            )
+            raise ValueError(
+                f"After collapsing rare classes, the 'background' group has "
+                f"{background_count} tile(s), which is fewer than n_folds={n_folds}. "
+                f"StratifiedKFold cannot proceed. Collapsed classes: {rare_breakdown}."
+            )
+    return strat
 
 
 def drop_rare_class_slides(
@@ -70,7 +103,18 @@ def drop_rare_class_slides(
     return keep
 
 
-def assign_folds(
+def assign_stratified_folds(
+    labels: np.ndarray, n_folds: int, random_state: int
+) -> np.ndarray:
+    """Assign each tile to a validation fold using stratified k-fold on tissue class label."""
+    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+    folds = np.full(len(labels), -1, dtype=np.int8)
+    for fold_idx, (_, val_idx) in enumerate(skf.split(folds, labels)):
+        folds[val_idx] = fold_idx
+    return folds
+
+
+def assign_stratified_group_folds(
     labels: np.ndarray, groups: np.ndarray, n_folds: int, random_state: int
 ) -> np.ndarray:
     """Assign each tile to a validation fold using stratified group k-fold.
@@ -89,6 +133,7 @@ def assign_folds(
 
 def log_fold_statistics(
     labels: np.ndarray,
+    stratification_labels: np.ndarray | None,
     tissue_props: np.ndarray,
     slide_ids: np.ndarray,
     folds: np.ndarray,
@@ -126,6 +171,19 @@ def log_fold_statistics(
         artifact_file="fold_statistics/label_distribution.json",
     )
 
+    if stratification_labels is not None:
+        strat_df = pd.DataFrame({"fold": folds, "label": stratification_labels})
+        strat_dist = (
+            strat_df.groupby(["fold", "label"])
+            .size()
+            .unstack(fill_value=0)
+            .reset_index()
+        )
+        mlflow.log_table(
+            data=strat_dist,
+            artifact_file="fold_statistics/stratification_label_distribution.json",
+        )
+
     print(f"Total tiles: {total} | fold size CV: {size_cv:.3f}")
     for fold in range(n_folds):
         mask = folds == fold
@@ -156,24 +214,42 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
     labels, tissue_props, slide_ids = derive_labels(dataset, roi_cols)
 
-    keep_mask = drop_rare_class_slides(labels, slide_ids, n_folds=config.n_folds)
-    if not keep_mask.all():
-        dropped = int((~keep_mask).sum())
-        mlflow.log_metric("dropped_rare_class_tiles", dropped)
-        labels = labels[keep_mask]
-        tissue_props = tissue_props[keep_mask]
-        slide_ids = slide_ids[keep_mask]
-        dataset = dataset.select(np.where(keep_mask)[0].tolist())
+    strategy = config.kfold_strategy
+    if strategy == "stratified":
+        stratification_labels = build_stratification_labels(
+            labels, n_folds=config.n_folds
+        )
+        folds = assign_stratified_folds(
+            stratification_labels,
+            n_folds=config.n_folds,
+            random_state=config.random_state,
+        )
+    elif strategy == "stratified_group":
+        keep_mask = drop_rare_class_slides(labels, slide_ids, n_folds=config.n_folds)
+        if not keep_mask.all():
+            dropped = int((~keep_mask).sum())
+            mlflow.log_metric("dropped_rare_class_tiles", dropped)
+            labels = labels[keep_mask]
+            tissue_props = tissue_props[keep_mask]
+            slide_ids = slide_ids[keep_mask]
+            dataset = dataset.select(np.where(keep_mask)[0].tolist())
 
-    folds = assign_folds(
-        labels,
-        slide_ids,
-        n_folds=config.n_folds,
-        random_state=config.random_state,
-    )
+        stratification_labels = None
+        folds = assign_stratified_group_folds(
+            labels,
+            slide_ids,
+            n_folds=config.n_folds,
+            random_state=config.random_state,
+        )
+    else:
+        raise ValueError(
+            "Unsupported kfold_strategy. Expected one of: "
+            "'stratified', 'stratified_group'."
+        )
 
     log_fold_statistics(
         labels,
+        stratification_labels,
         tissue_props,
         slide_ids,
         folds,
