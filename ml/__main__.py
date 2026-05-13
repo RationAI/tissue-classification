@@ -30,7 +30,10 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     if config.mode not in allowed_modes:
         raise ValueError(f"Invalid mode {config.mode!r}. Allowed: {allowed_modes}")
     getattr(trainer, config.mode)(
-        model, datamodule=data, ckpt_path=_resolve_checkpoint(config.checkpoint)
+        model,
+        datamodule=data,
+        ckpt_path=_resolve_checkpoint(config.checkpoint),
+        weights_only=False,
     )
     mlflow.end_run()
 
