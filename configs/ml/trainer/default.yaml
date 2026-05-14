@@ -11,15 +11,15 @@ trainer:
   callbacks:
     early_stopping:
       _target_: lightning.pytorch.callbacks.EarlyStopping
-      monitor: validation/loss
-      mode: min
+      monitor: validation/f1_macro
+      mode: max
       patience: 2
     model_checkpoint:
       _target_: lightning.pytorch.callbacks.ModelCheckpoint
-      monitor: validation/loss
-      mode: min
+      monitor: validation/f1_macro
+      mode: max
       save_top_k: 1
-      filename: "epoch={epoch}-val_loss={validation/loss:.4f}"
+      filename: "epoch={epoch}-val_f1={validation/f1_macro:.4f}"
       auto_insert_metric_name: false
     lr_monitor:
       _target_: lightning.pytorch.callbacks.LearningRateMonitor
