@@ -3,8 +3,8 @@ from random import randint
 from typing import Any
 
 import hydra
-import joblib
 import mlflow
+import mlflow.sklearn
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
@@ -42,6 +42,8 @@ def run(config: DictConfig) -> None:
     np.random.seed(config.seed)
     data = hydra.utils.instantiate(config.data, _recursive_=False, _target_=DataModule)
     data.setup("fit")
+    if "test" in data.datasets:
+        data.setup("test")
 
     x_train = data.train.embeddings
     y_train = data.train.labels
@@ -53,26 +55,42 @@ def run(config: DictConfig) -> None:
     ]
     model = _build_model(config)
     model.fit(x_train, y_train)
+    _log_convergence(model, config)
 
     _log_split_metrics(
         model, x_val, y_val, data.val.slide_ids, class_names, "validation"
     )
+    if hasattr(data, "test"):
+        _log_split_metrics(
+            model,
+            data.test.embeddings,
+            data.test.labels,
+            data.test.slide_ids,
+            class_names,
+            "test",
+        )
     _log_model(model)
 
-    mlflow.log_params(
-        {
-            "model_type": "sklearn_logistic_regression",
-            "solver": config.model.solver,
-            "penalty": config.model.penalty,
-            "C": config.model.C,
-            "max_iter": config.model.max_iter,
-            "tol": config.model.tol,
-            "class_weight": config.model.class_weight,
-            "standardize": config.model.standardize,
-            "train_tiles": len(y_train),
-            "validation_tiles": len(y_val),
-        }
-    )
+    params = {
+        "model_type": "sklearn_logistic_regression",
+        "solver": config.model.solver,
+        "penalty": config.model.penalty,
+        "C": config.model.C,
+        "max_iter": config.model.max_iter,
+        "tol": config.model.tol,
+        "class_weight": config.model.class_weight,
+        "standardize": config.model.standardize,
+        "val_fold": config.val_fold,
+        "kfold_strategy": config.kfold_strategy,
+        "embedding_run_id": config.embedding_run_id,
+        "kfold_run_id": config.kfold_run_id,
+        "filter_tiles_run_id": config.filter_tiles_run_id,
+        "train_tiles": len(y_train),
+        "validation_tiles": len(y_val),
+    }
+    if hasattr(data, "test"):
+        params["test_tiles"] = len(data.test.labels)
+    mlflow.log_params(params)
 
 
 def _build_model(config: DictConfig) -> Pipeline:
@@ -152,6 +170,27 @@ def _log_split_metrics(
     out_path = Path(f"{split}_predictions.parquet")
     predictions.to_parquet(out_path, index=False)
     mlflow.log_artifact(str(out_path), artifact_path="predictions")
+    _log_per_slide_accuracy(predictions, split)
+
+
+def _log_per_slide_accuracy(predictions: pd.DataFrame, split: str) -> None:
+    rows = []
+    for slide_id, slide_df in predictions.groupby("slide_id"):
+        rows.append(
+            {
+                "slide_id": slide_id,
+                "tile_accuracy": float((slide_df["pred"] == slide_df["target"]).mean()),
+                "n_tiles": len(slide_df),
+            }
+        )
+    if not rows:
+        return
+
+    per_slide = pd.DataFrame(rows)
+    mlflow.log_metric(f"{split}/slide_acc_mean", per_slide["tile_accuracy"].mean())
+    mlflow.log_metric(f"{split}/slide_acc_median", per_slide["tile_accuracy"].median())
+    mlflow.log_metric(f"{split}/slide_acc_min", per_slide["tile_accuracy"].min())
+    mlflow.log_table(per_slide, artifact_file=f"per_slide/{split}_tile_accuracy.json")
 
 
 def _predict_proba_for_all_classes(
@@ -166,10 +205,15 @@ def _predict_proba_for_all_classes(
     return probs
 
 
+def _log_convergence(model: Pipeline, config: DictConfig) -> None:
+    classifier = model.named_steps["classifier"]
+    n_iter = int(classifier.n_iter_.max())
+    mlflow.log_metric("n_iter", n_iter)
+    mlflow.log_param("converged", n_iter < config.model.max_iter)
+
+
 def _log_model(model: Pipeline) -> None:
-    out_path = Path("model.joblib")
-    joblib.dump(model, out_path)
-    mlflow.log_artifact(str(out_path), artifact_path="model")
+    mlflow.sklearn.log_model(model, artifact_path="model")
 
 
 if __name__ == "__main__":
