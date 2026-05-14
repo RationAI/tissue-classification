@@ -26,6 +26,12 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         run_sklearn_linear(config)
         mlflow.end_run()
         return
+    if config.get("runner") == "sklearn_knn":
+        from ml.sklearn_knn import run as run_sklearn_knn
+
+        run_sklearn_knn(config)
+        mlflow.end_run()
+        return
 
     seed_everything(config.seed, workers=True)
 
