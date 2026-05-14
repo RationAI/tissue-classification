@@ -1,0 +1,8 @@
+# @package _global_
+
+defaults:
+  - /ml/lbfgs_logistic_regression
+  - _self_
+
+kfold_strategy: stratified_group
+kfold_run_id: ${dataset.mlflow_artifacts.stratified_group_kfold_run_id}
