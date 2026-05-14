@@ -1,8 +1,0 @@
-# @package _global_
-
-defaults:
-  - /ml/knn
-  - _self_
-
-kfold_strategy: stratified
-kfold_run_id: ${dataset.mlflow_artifacts.stratified_kfold_run_id}
