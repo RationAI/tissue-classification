@@ -12,13 +12,7 @@ submit_job(
         "git clone https://github.com/RationAI/tissue-classification.git workdir",
         "cd workdir",
         "uv sync",
-        (
-            "uv run python -m ml "
-            "+experiment=ml/..."
-            "val_fold=0,1,2,3,4 "
-            "model.C=0.001,0.01,0.1,1,10,100 "
-            "--multirun"
-        ),
+        "uv run python -m ml +experiment=ml/... val_fold=0,1,2,3,4 model.C=0.001,0.01,0.1,1,10,100 --multirun",
     ],
     storage=[storage.secure.PROJECTS],
 )
