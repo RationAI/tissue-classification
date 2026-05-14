@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 from lightning import LightningModule
+from lightning.pytorch.utilities import grad_norm
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from torch import Tensor, nn
@@ -101,6 +102,16 @@ class MetaArch(LightningModule):
         loss = self.criterion(outputs, targets)
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
+
+    def on_before_optimizer_step(self, optimizer: Optimizer) -> None:
+        norms = grad_norm(self, norm_type=2)
+        self.log(
+            "train/grad_norm",
+            norms["grad_2.0_norm_total"],
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
 
     def validation_step(self, batch: Input, batch_idx: int) -> None:
         inputs, targets, _ = batch
