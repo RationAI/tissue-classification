@@ -5,6 +5,7 @@ filter_tiles parquet for test) and applies tissue + per-class thresholds at
 load time to produce ``(embedding, class_index, slide_id)`` triples.
 """
 
+from functools import cache
 from pathlib import Path
 
 import numpy as np
@@ -186,7 +187,11 @@ class EmbeddingTilesDataset(Dataset[Sample]):
 
     @staticmethod
     def _resolve_uri(path_or_uri: str | Path) -> str:
-        s = str(path_or_uri)
-        if s.startswith(("mlflow-artifacts:/", "runs:/")):
-            return download_artifacts(artifact_uri=s)
-        return s
+        return EmbeddingTilesDataset._resolve_uri_cached(str(path_or_uri))
+
+    @staticmethod
+    @cache
+    def _resolve_uri_cached(uri: str) -> str:
+        if uri.startswith(("mlflow-artifacts:/", "runs:/")):
+            return download_artifacts(artifact_uri=uri)
+        return uri
