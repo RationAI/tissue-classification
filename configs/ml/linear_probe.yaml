@@ -1,0 +1,48 @@
+# @package _global_
+
+mode: fit
+
+embed_dim: 2560
+embeddings_run_id: ???
+kfold_run_id: ???
+n_folds: 5
+
+trainer:
+  _target_: rationai.mlkit.lightning.Trainer
+  max_epochs: 30
+  accelerator: auto
+  devices: 1
+  log_every_n_steps: 50
+
+data:
+  _target_: ml.data.embeddings_datamodule.EmbeddingsDataModule
+  embeddings_run_id: ${embeddings_run_id}
+  kfold_run_id: ${kfold_run_id}
+  kfold_artifact_path: kfold_split/kfold_tiles.parquet
+  class_mapping: ${class_mapping}
+  class_indices: ${class_indices}
+  drop_unmapped: true
+  tissue_prop_min: 0.0
+  class_coverage_min: 0.5
+  batch_size: 1024
+  num_workers: 4
+
+model:
+  _target_: ml.models.linear_probe.LinearProbe
+  embed_dim: ${embed_dim}
+  num_classes: ${len:${class_names}}
+  lr: 1e-3
+  weight_decay: 0.0
+  class_names: ${class_names}
+  class_weights: balanced  # null | "balanced" | "inverse" | list[float]
+
+metadata:
+  run_name: "Linear probe (embed=${embeddings_run_id}, kfold=${kfold_run_id})"
+  description: Linear probe on cached Virchow2 embeddings, k-fold CV
+  hyperparams:
+    embed_dim: ${embed_dim}
+    lr: ${model.lr}
+    batch_size: ${data.batch_size}
+    n_folds: ${n_folds}
+    tissue_prop_min: ${data.tissue_prop_min}
+    class_coverage_min: ${data.class_coverage_min}
