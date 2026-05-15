@@ -20,12 +20,6 @@ OmegaConf.register_new_resolver("len", lambda x: len(x))
 @hydra.main(config_path="../configs", config_name="ml", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    if config.get("runner") == "sklearn_linear":
-        from ml.sklearn_linear import run as run_sklearn_linear
-
-        run_sklearn_linear(config)
-        mlflow.end_run()
-        return
     seed_everything(config.seed, workers=True)
 
     data = hydra.utils.instantiate(config.data, _recursive_=False, _target_=DataModule)
