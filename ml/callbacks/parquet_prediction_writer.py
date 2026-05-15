@@ -32,16 +32,21 @@ class ParquetPredictionWriter(BasePredictionWriter):
         if trainer.global_rank != 0:
             return
 
+        batches = (
+            predictions
+            if not predictions or isinstance(predictions[0], dict)
+            else [b for dataloader_preds in predictions for b in dataloader_preds]
+        )
+
         slide_ids: list[str] = []
         targets: list[int] = []
         preds: list[int] = []
         probs: list[np.ndarray] = []
-        for dataloader_preds in predictions:
-            for b in dataloader_preds:
-                slide_ids.extend(b["slide_id"])
-                targets.extend(b["target"].tolist())
-                preds.extend(b["pred"].tolist())
-                probs.append(b["probs"].numpy())
+        for b in batches:
+            slide_ids.extend(b["slide_id"])
+            targets.extend(b["target"].tolist())
+            preds.extend(b["pred"].tolist())
+            probs.append(b["probs"].numpy())
 
         if not slide_ids:
             return

@@ -50,13 +50,13 @@ class MetaArch(LightningModule):
 
         self.backbone = backbone
         self.decode_head = decode_head
-        self.criterion: nn.Module
         self._lbfgs_batches: list[tuple[Tensor, Tensor]] = []
 
         self.class_names = [
             n for n, _ in sorted(class_indices.items(), key=lambda kv: kv[1])
         ]
         num_classes = len(self.class_names)
+        self.criterion = nn.CrossEntropyLoss(weight=torch.ones(num_classes))
 
         macro_metrics = MetricCollection(
             {
@@ -208,7 +208,7 @@ class MetaArch(LightningModule):
             with torch.no_grad():
                 return self.criterion(self(inputs), targets)
 
-        optimizer = self.optimizers()
+        optimizer = cast("Any", self.optimizers())
         total_samples = sum(targets.numel() for _, targets in self._lbfgs_batches)
 
         def closure() -> Tensor:
