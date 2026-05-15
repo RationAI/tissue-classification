@@ -46,14 +46,3 @@ class_indices:
   Inflammation-Chronic: 6
   Necrosis: 7
   Neoplastic: 8
-
-class_names:
-  - Nerve
-  - Blood
-  - Connective-Tissue
-  - Fat
-  - Epithelium
-  - Muscle
-  - Inflammation-Chronic
-  - Necrosis
-  - Neoplastic

@@ -42,12 +42,3 @@ class_indices:
   Epithelium: 4
   Muscle: 5
   Other: 6
-
-class_names:
-  - Nerve
-  - Blood
-  - Connective-Tissue
-  - Fat
-  - Epithelium
-  - Muscle
-  - Other
