@@ -2,12 +2,14 @@
 
 n_folds: ???
 random_state: 42
+kfold_strategy: stratified
 
 mlflow_artifact_path: kfold_split
 
 metadata:
   run_name: K-Fold Split ${dataset.name}
-  description: 'Split train tiles into ${n_folds} stratified folds by tissue class label.'
+  description: 'Split train tiles into ${n_folds} folds using ${kfold_strategy}.'
   hyperparams:
     n_folds: ${n_folds}
     random_state: ${random_state}
+    kfold_strategy: ${kfold_strategy}

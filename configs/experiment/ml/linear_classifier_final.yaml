@@ -11,7 +11,8 @@ defaults:
 mode: fit
 
 embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_id}
-kfold_run_id: ${dataset.mlflow_artifacts.kfold_run_id}
+kfold_strategy: stratified
+kfold_run_id: ${dataset.mlflow_artifacts.stratified_kfold_run_id}
 filter_tiles_run_id: ${dataset.mlflow_artifacts.filter_tiles_run_id}
 
 train_embedding_uri: runs:/${embedding_run_id}/train/tiles
@@ -36,6 +37,7 @@ metadata:
   description: "Final linear probe over frozen Virchow2 embeddings trained on all training folds for ${trainer.max_epochs} epochs."
   hyperparams:
     embedding_run_id: ${embedding_run_id}
+    kfold_strategy: ${kfold_strategy}
     kfold_run_id: ${kfold_run_id}
     filter_tiles_run_id: ${filter_tiles_run_id}
     tissue_prop_min: ${tissue_prop_min}
