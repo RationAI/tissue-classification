@@ -59,9 +59,9 @@ class DataModule(LightningDataModule):
             persistent_workers=self.num_workers > 0,
         )
 
-    def val_dataloader(self) -> Iterable[Input] | None:
+    def val_dataloader(self) -> Iterable[Input]:
         if self.val is None:
-            return None
+            return []
         return DataLoader(
             self.val,
             batch_size=self.batch_size,
