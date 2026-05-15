@@ -37,13 +37,21 @@ class MetaArch(LightningModule):
         class_indices: dict[str, int],
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
+        optimizer: str = "adamw",
+        lbfgs: dict[str, Any] | None = None,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["backbone", "decode_head"])
 
+        if optimizer not in {"adamw", "lbfgs"}:
+            raise ValueError(f"Unsupported optimizer {optimizer!r}")
+        if optimizer == "lbfgs":
+            self.automatic_optimization = False
+
         self.backbone = backbone
         self.decode_head = decode_head
         self.criterion: nn.Module
+        self._lbfgs_batches: list[tuple[Tensor, Tensor]] = []
 
         self.class_names = [
             n for n, _ in sorted(class_indices.items(), key=lambda kv: kv[1])
@@ -82,6 +90,8 @@ class MetaArch(LightningModule):
         if stage == "fit":
             datamodule = cast("Any", self.trainer).datamodule
             labels = datamodule.train.labels
+            if self.hparams["optimizer"] == "lbfgs":
+                self._validate_lbfgs_full_batch(datamodule, len(labels))
             num_classes = len(self.class_names)
             counts = np.bincount(labels, minlength=num_classes).astype(float)
             counts = np.maximum(counts, 1.0)
@@ -97,6 +107,9 @@ class MetaArch(LightningModule):
         return self.decode_head(features)
 
     def training_step(self, batch: Input, batch_idx: int) -> Tensor:
+        if self.hparams["optimizer"] == "lbfgs":
+            return self._lbfgs_training_step(batch, batch_idx)
+
         inputs, targets, _ = batch
         outputs = self(inputs)
         loss = self.criterion(outputs, targets)
@@ -104,6 +117,8 @@ class MetaArch(LightningModule):
         return loss
 
     def on_before_optimizer_step(self, optimizer: Optimizer) -> None:
+        if self.hparams["optimizer"] == "lbfgs":
+            return
         norms = grad_norm(self, norm_type=2)
         self.log(
             "train/grad_norm",
@@ -163,11 +178,140 @@ class MetaArch(LightningModule):
         }
 
     def configure_optimizers(self) -> Optimizer:
+        if self.hparams["optimizer"] == "lbfgs":
+            lbfgs = self.hparams.get("lbfgs") or {}
+            return torch.optim.LBFGS(
+                self.parameters(),
+                lr=self.hparams["learning_rate"],
+                max_iter=lbfgs.get("max_iter", 100),
+                max_eval=lbfgs.get("max_eval"),
+                tolerance_grad=lbfgs.get("tolerance_grad", 1.0e-7),
+                tolerance_change=lbfgs.get("tolerance_change", 1.0e-9),
+                history_size=lbfgs.get("history_size", 100),
+                line_search_fn=lbfgs.get("line_search_fn", "strong_wolfe"),
+            )
+
         return torch.optim.AdamW(
             self.parameters(),
             lr=self.hparams["learning_rate"],
             weight_decay=self.hparams["weight_decay"],
         )
+
+    def _lbfgs_training_step(self, batch: Input, batch_idx: int) -> Tensor:
+        inputs, targets, _ = batch
+        self._lbfgs_batches.append(self._prepare_lbfgs_batch(inputs, targets))
+        lbfgs = self.hparams.get("lbfgs") or {}
+        accumulation_steps = int(lbfgs.get("accumulate_batches", 1))
+        is_last_batch = batch_idx + 1 == self.trainer.num_training_batches
+        should_step = len(self._lbfgs_batches) >= accumulation_steps or is_last_batch
+        if not should_step:
+            with torch.no_grad():
+                return self.criterion(self(inputs), targets)
+
+        optimizer = self.optimizers()
+        total_samples = sum(targets.numel() for _, targets in self._lbfgs_batches)
+
+        def closure() -> Tensor:
+            optimizer.zero_grad()
+            loss, _, _ = self._lbfgs_buffered_loss(total_samples)
+            if not torch.isfinite(loss):
+                raise FloatingPointError(f"non-finite LBFGS loss: {loss.item()}")
+            self.manual_backward(loss)
+            return loss
+
+        step_loss = optimizer.step(closure=closure)
+        if not isinstance(step_loss, Tensor):
+            step_loss = torch.as_tensor(step_loss, device=self.device)
+
+        optimizer.zero_grad()
+        loss, ce_loss, l2_loss = self._lbfgs_buffered_loss(total_samples)
+        if not torch.isfinite(loss):
+            raise FloatingPointError(f"non-finite LBFGS post-step loss: {loss.item()}")
+        self.manual_backward(loss)
+        grad_norm = self._total_grad_norm()
+        if grad_norm is not None and not torch.isfinite(grad_norm):
+            raise FloatingPointError(
+                f"non-finite LBFGS gradient norm: {grad_norm.item()}"
+            )
+        optimizer.zero_grad()
+        self._lbfgs_batches.clear()
+
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train/ce_loss", ce_loss, on_step=True, on_epoch=True)
+        self.log("train/l2_loss", l2_loss, on_step=True, on_epoch=True)
+        if grad_norm is not None:
+            self.log(
+                "train/grad_norm",
+                grad_norm,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+            )
+        self.log("train/lbfgs_step_loss", step_loss.detach(), on_step=True)
+        return loss
+
+    def _prepare_lbfgs_batch(
+        self, inputs: Tensor, targets: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        lbfgs = self.hparams.get("lbfgs") or {}
+        if lbfgs.get("accumulate_on_cpu", False):
+            return inputs.detach().cpu(), targets.detach().cpu()
+        return inputs, targets
+
+    def _validate_lbfgs_full_batch(self, datamodule: Any, train_size: int) -> None:
+        lbfgs = self.hparams.get("lbfgs") or {}
+        batch_size = int(datamodule.batch_size)
+        accumulation_steps = int(lbfgs.get("accumulate_batches", 1))
+        effective_batch_size = batch_size * accumulation_steps
+
+        if datamodule.train_shuffle:
+            raise ValueError("LBFGS requires data.train_shuffle=false.")
+        if datamodule.train_drop_last:
+            raise ValueError("LBFGS requires data.train_drop_last=false.")
+        if effective_batch_size < train_size:
+            raise ValueError(
+                "LBFGS requires a deterministic full-batch objective. Set "
+                "data.batch_size >= len(train) or set "
+                "model.lbfgs.accumulate_batches >= ceil(len(train) / "
+                "data.batch_size). Current effective batch size is "
+                f"{effective_batch_size} for {train_size} training samples."
+            )
+
+    def _lbfgs_buffered_loss(self, total_samples: int) -> tuple[Tensor, Tensor, Tensor]:
+        ce_loss = torch.zeros((), device=self.device)
+        for micro_inputs, micro_targets in self._lbfgs_batches:
+            micro_inputs = micro_inputs.to(self.device)
+            micro_targets = micro_targets.to(self.device)
+            outputs = self(micro_inputs)
+            weight = micro_targets.numel() / total_samples
+            ce_loss = ce_loss + self.criterion(outputs, micro_targets) * weight
+
+        l2_loss = self._l2_loss()
+        return ce_loss + l2_loss, ce_loss, l2_loss
+
+    def _objective_loss(self, outputs: Tensor, targets: Tensor) -> Tensor:
+        return self.criterion(outputs, targets) + self._l2_loss()
+
+    def _l2_loss(self) -> Tensor:
+        weight_decay = self.hparams["weight_decay"]
+        if weight_decay == 0:
+            return torch.zeros((), device=self.device)
+
+        penalty = torch.zeros((), device=self.device)
+        for name, param in self.named_parameters():
+            if param.requires_grad and name.endswith("weight"):
+                penalty = penalty + param.square().sum()
+        return 0.5 * weight_decay * penalty
+
+    def _total_grad_norm(self) -> Tensor | None:
+        grads = [
+            param.grad.detach().norm(2)
+            for param in self.parameters()
+            if param.grad is not None
+        ]
+        if not grads:
+            return None
+        return torch.linalg.vector_norm(torch.stack(grads), ord=2)
 
     def _log_per_class(self, collection: MetricCollection, split: str) -> None:
         computed = collection.compute()

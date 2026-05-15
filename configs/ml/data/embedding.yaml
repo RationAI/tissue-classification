@@ -3,6 +3,8 @@
 data:
   batch_size: 1024
   num_workers: 4
+  train_shuffle: true
+  train_drop_last: true
 
   train:
     _target_: ml.data.datasets.EmbeddingTilesDataset

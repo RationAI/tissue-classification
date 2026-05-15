@@ -35,7 +35,7 @@ thresholds:
 mlflow_artifact_path: linear_classifier
 
 metadata:
-  run_name: Linear Classifier ${dataset.name} ${kfold_strategy} fold=${val_fold} wd=${model.weight_decay}
+  run_name: Linear Classifier ${dataset.name} ${kfold_strategy} fold=${val_fold} opt=${model.optimizer} wd=${model.weight_decay}
   description: "Linear probe over frozen Virchow2 embeddings (run ${embedding_run_id}), ${kfold_strategy} kfold metadata ${kfold_run_id}."
   hyperparams:
     embedding_run_id: ${embedding_run_id}
@@ -45,6 +45,10 @@ metadata:
     val_fold: ${val_fold}
     tissue_prop_min: ${tissue_prop_min}
     thresholds: ${thresholds}
+    optimizer: ${model.optimizer}
     learning_rate: ${model.learning_rate}
     weight_decay: ${model.weight_decay}
+    lbfgs: ${model.lbfgs}
     batch_size: ${data.batch_size}
+    train_shuffle: ${data.train_shuffle}
+    train_drop_last: ${data.train_drop_last}
