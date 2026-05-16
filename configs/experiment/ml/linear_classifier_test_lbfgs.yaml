@@ -1,0 +1,18 @@
+# @package _global_
+
+defaults:
+  - /experiment/ml/linear_classifier_final_lbfgs
+  - _self_
+
+# Test the LBFGS final checkpoint on the held-out test split. The full-batch
+# settings (batch_size 1e9, num_workers 0) are a TRAINING requirement for the
+# convex LBFGS solve only; at test there is no optimization, so revert to a
+# normal batch to avoid loading the whole test set as one tensor (OOM).
+# Same model architecture as the final run (required for state_dict load).
+mode: test
+
+data:
+  batch_size: 1024
+  num_workers: 4
+  train_shuffle: true
+  train_drop_last: true
