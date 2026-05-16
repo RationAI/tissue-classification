@@ -200,7 +200,9 @@ class TiffPredictionMapWriter(Callback):
 
         xs = predictions["x"].to_numpy(dtype=np.int64)
         ys = predictions["y"].to_numpy(dtype=np.int64)
-        probs = np.stack(predictions["probs"].to_numpy()).astype(np.float32)
+        probs = np.stack(
+            [np.asarray(prob, dtype=np.float32) for prob in predictions["probs"]]
+        )
 
         _write_class_map(
             probs=probs,
@@ -263,14 +265,10 @@ class _ClassVoteAssembler:
         self._gx = extent_x // self.cdx
         self._gy = extent_y // self.cdy
         self._n_classes = n_classes
-        self._acc = torch.zeros(
-            n_classes, self._gy, self._gx, dtype=torch.float32
-        )
+        self._acc = torch.zeros(n_classes, self._gy, self._gx, dtype=torch.float32)
         self._count = torch.zeros(self._gy, self._gx, dtype=torch.int32)
 
-    def update(
-        self, probs: torch.Tensor, xs: torch.Tensor, ys: torch.Tensor
-    ) -> None:
+    def update(self, probs: torch.Tensor, xs: torch.Tensor, ys: torch.Tensor) -> None:
         for prob, x, y in zip(probs, xs, ys, strict=False):
             cx = int(x.item()) // self.cdx
             cy = int(y.item()) // self.cdy
@@ -283,8 +281,10 @@ class _ClassVoteAssembler:
             self._count[y0:y1, x0:x1] += 1
 
     def labels(self) -> np.ndarray:
-        """Encode like ``remap_annotation_masks``: class ``i`` (0-based) ->
-        ``round(255 * (i + 1) / n_classes)``, never-covered pixels -> ``0``.
+        """Encode prediction labels like ``remap_annotation_masks``.
+
+        Class ``i`` (0-based) maps to
+        ``round(255 * (i + 1) / n_classes)``. Never-covered pixels map to ``0``.
 
         The reporting tool expects GT and prediction masks in the same
         evenly-spread value space, so this must mirror that LUT exactly.
@@ -314,9 +314,7 @@ def _emit_mask(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     mask = pyvips.Image.new_from_array(grid).cast(pyvips.BandFormat.UCHAR)
-    mask = mask.resize(
-        cdx, vscale=cdy, kernel=pyvips.enums.Kernel.NEAREST
-    )
+    mask = mask.resize(cdx, vscale=cdy, kernel=pyvips.enums.Kernel.NEAREST)
     mask = mask.embed(
         0,
         0,
