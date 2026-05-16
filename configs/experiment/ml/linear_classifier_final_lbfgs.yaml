@@ -13,6 +13,7 @@ trainer:
 
 data:
   batch_size: 1000000000
+  eval_batch_size: 1024
   train_shuffle: false
   train_drop_last: false
   num_workers: 0
