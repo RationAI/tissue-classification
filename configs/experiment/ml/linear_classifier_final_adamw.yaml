@@ -13,6 +13,11 @@ model:
   learning_rate: 1.0e-4
   weight_decay: 1.0e-3
 
+trainer:
+  callbacks:
+    model_checkpoint:
+      save_last: true
+
 metadata:
   run_name: Final Linear Classifier AdamW ${dataset.name}
   description: "Final AdamW linear probe over frozen Virchow2 embeddings, trained on all training folds with early stopping on train/loss_epoch."
