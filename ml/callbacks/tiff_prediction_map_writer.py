@@ -56,6 +56,7 @@ class TiffPredictionMapWriter(Callback):
 
     def on_test_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         self._batches.clear()
+        print("[TiffPredictionMapWriter] test loop started", flush=True)
 
     def on_predict_start(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
@@ -73,6 +74,12 @@ class TiffPredictionMapWriter(Callback):
     ) -> None:
         if trainer.global_rank == 0 and isinstance(outputs, Mapping):
             self._batches.append(_to_cpu_batch(outputs))
+            if batch_idx % 50 == 0:
+                print(
+                    f"[TiffPredictionMapWriter] test batch {batch_idx} "
+                    f"({len(self._batches)} buffered)",
+                    flush=True,
+                )
 
     def on_predict_batch_end(
         self,

@@ -7,6 +7,7 @@ load time to produce ``(embedding, class_index, slide_id, x, y)`` samples.
 
 from functools import cache
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
 import pandas as pd
@@ -43,6 +44,15 @@ class EmbeddingTilesDataset(Dataset[Sample]):
         include_folds: list[int] | None = None,
         exclude_folds: list[int] | None = None,
     ) -> None:
+        t0 = perf_counter()
+
+        def _diag(msg: str) -> None:
+            print(
+                f"[EmbeddingTilesDataset +{perf_counter() - t0:6.1f}s] {msg}",
+                flush=True,
+            )
+
+        _diag("filtering metadata")
         meta_df = self._filter_metadata(
             metadata_uri,
             thresholds,
@@ -50,11 +60,13 @@ class EmbeddingTilesDataset(Dataset[Sample]):
             include_folds,
             exclude_folds,
         )
+        _diag(f"metadata filtered: {len(meta_df)} rows; reading embeddings")
 
         emb_dir = self._resolve_uri(embedding_uri)
         emb_table = pads.dataset(emb_dir, format="parquet").to_table(
             columns=["slide_id", "x", "y", "embedding"]
         )
+        _diag(f"embedding table loaded: {emb_table.num_rows} rows")
 
         emb_col = emb_table.column("embedding")
         if pa.types.is_list(emb_col.type):
@@ -75,6 +87,7 @@ class EmbeddingTilesDataset(Dataset[Sample]):
         del emb_keys, meta_table
         if joined_keys.num_rows == 0:
             raise RuntimeError("inner join with embeddings produced empty dataset")
+        _diag(f"join done: {joined_keys.num_rows} matched rows; filling embeddings")
 
         _idx_col = joined_keys.column("_emb_idx")
         if isinstance(_idx_col, pa.ChunkedArray):
@@ -117,6 +130,7 @@ class EmbeddingTilesDataset(Dataset[Sample]):
         self.slide_ids = joined_keys.column("slide_id").to_pandas().to_numpy()
         self.xs = joined_keys.column("x").to_pandas().to_numpy(dtype=np.int64)
         self.ys = joined_keys.column("y").to_pandas().to_numpy(dtype=np.int64)
+        _diag(f"dataset ready: {len(self.labels)} samples, dim={embeddings.shape[1]}")
 
     def __len__(self) -> int:
         return len(self.labels)
