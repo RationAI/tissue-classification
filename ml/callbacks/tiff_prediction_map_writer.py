@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import lightning as pl
 import mlflow
+import numpy as np
 import pandas as pd
 import torch
 from lightning.pytorch.callbacks import Callback
@@ -130,7 +131,9 @@ class TiffPredictionMapWriter(Callback):
                 f"[TiffPredictionMapWriter] writing {len(slide_groups)} "
                 f"prediction map(s)"
             )
-            for index, (slide_id, slide_predictions) in enumerate(slide_groups, start=1):
+            for index, (slide_id, slide_predictions) in enumerate(
+                slide_groups, start=1
+            ):
                 slide = slides_by_id.get(str(slide_id))
                 if slide is None:
                     raise KeyError(
@@ -307,9 +310,11 @@ def _write_vips_prediction_map(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     width, height = size
-    vips_image = pyvips.Image.black(width, height).cast(pyvips.BandFormat.UCHAR)
-    if background_value != 0:
-        vips_image = vips_image + background_value
+
+    # Draw into a single numpy buffer. Chaining pyvips.draw_rect rebuilds the
+    # full-extent image per tile (O(n_tiles * width * height)) and hangs on WSI
+    # extents; numpy slice assignment is one allocation + O(total pixels).
+    buffer = np.full((height, width), background_value, dtype=np.uint8)
 
     for row in rows:
         box = _clip_box(
@@ -330,15 +335,9 @@ def _write_vips_prediction_map(
             if value_key == "_error"
             else int(row[value_key])
         )
-        drawn = vips_image.draw_rect(
-            value,
-            left,
-            top,
-            right - left + 1,
-            bottom - top + 1,
-            fill=True,
-        )
-        if drawn is not None:
-            vips_image = drawn
+        buffer[top : bottom + 1, left : right + 1] = value
 
+    vips_image = pyvips.Image.new_from_memory(
+        buffer.tobytes(), width, height, 1, "uchar"
+    )
     write_big_tiff(vips_image, path=path, mpp_x=mpp_x, mpp_y=mpp_y)
