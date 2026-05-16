@@ -34,10 +34,11 @@ class TiffPredictionMapWriter(Callback):
         slide_selection: str = "all",
     ) -> None:
         super().__init__()
-        if draw_region not in {"central_stride", "tile"}:
+        if draw_region != "central_stride":
             raise ValueError(
-                "draw_region must be either 'central_stride' or 'tile', "
-                f"got {draw_region!r}"
+                "draw_region must be 'central_stride'; 'tile' is unsupported "
+                "for class maps (overlapping tiles would average categorical "
+                f"class indices). got {draw_region!r}"
             )
         if slide_selection not in {"all", "worst"}:
             raise ValueError(
@@ -192,71 +193,111 @@ class TiffPredictionMapWriter(Callback):
         output_path: Path,
     ) -> None:
         filename = f"{_safe_filename(Path(str(slide['path'])).stem)}.tiff"
-        size = (int(slide["extent_x"]), int(slide["extent_y"]))
+        extent = (int(slide["extent_x"]), int(slide["extent_y"]))
         tile_extent = (int(slide["tile_extent_x"]), int(slide["tile_extent_y"]))
         stride = (int(slide["stride_x"]), int(slide["stride_y"]))
-        rows = predictions.to_dict(orient="records")
+        mpp = (float(slide["mpp_x"]), float(slide["mpp_y"]))
 
-        _write_vips_prediction_map(
-            rows=rows,
-            value_key="pred",
-            size=size,
+        xs = predictions["x"].to_numpy(dtype=np.int64)
+        ys = predictions["y"].to_numpy(dtype=np.int64)
+        preds = predictions["pred"].to_numpy(dtype=np.int64)
+
+        _write_assembled_map(
+            values=preds,
+            xs=xs,
+            ys=ys,
+            extent=extent,
             tile_extent=tile_extent,
             stride=stride,
-            draw_region=self.draw_region,
             background_value=self.background_value,
             path=Path(output_path, "pred", filename),
-            mpp_x=float(slide["mpp_x"]),
-            mpp_y=float(slide["mpp_y"]),
+            mpp=mpp,
         )
 
         if not self.write_errors:
             return
 
-        _write_vips_prediction_map(
-            rows=rows,
-            value_key="_error",
-            size=size,
+        errors = (
+            predictions["pred"].to_numpy() != predictions["target"].to_numpy()
+        ).astype(np.int64)
+        _write_assembled_map(
+            values=errors,
+            xs=xs,
+            ys=ys,
+            extent=extent,
             tile_extent=tile_extent,
             stride=stride,
-            draw_region=self.draw_region,
             background_value=self.background_value,
             path=Path(output_path, "errors", filename),
-            mpp_x=float(slide["mpp_x"]),
-            mpp_y=float(slide["mpp_y"]),
+            mpp=mpp,
         )
 
 
-def _tile_box(
-    x: int,
-    y: int,
+def _write_assembled_map(
+    values: np.ndarray,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    extent: tuple[int, int],
     tile_extent: tuple[int, int],
     stride: tuple[int, int],
-    draw_region: str,
-) -> tuple[int, int, int, int]:
-    if draw_region == "tile":
-        left = x
-        top = y
-        width, height = tile_extent
-    else:
-        left = x + (tile_extent[0] - stride[0]) // 2
-        top = y + (tile_extent[1] - stride[1]) // 2
-        width, height = stride
-    return (left, top, left + width - 1, top + height - 1)
+    background_value: int,
+    path: Path,
+    mpp: tuple[float, float],
+) -> None:
+    """Assemble per-tile scalar predictions into a WSI-aligned uint8 BigTIFF.
 
+    Uses ``HeatmapAssembler`` with the tile footprint set to ``stride`` so
+    tiles are non-overlapping (``central_stride`` semantics): the count grid
+    stays <= 1, so no categorical class-index averaging occurs. The assembler
+    keeps a GCD-compressed grid (extent / stride), avoiding a full-extent
+    in-RAM buffer. Pixels never covered by a tile are written as
+    ``background_value``; the grid is recentered by ``(tile - stride) // 2``
+    on embed to match the tile's central receptive region.
+    """
+    import pyvips
+    from rationai.masks import write_big_tiff
+    from rationai.masks.heatmap_assembler import HeatmapAssembler
 
-def _clip_box(
-    box: tuple[int, int, int, int], size: tuple[int, int]
-) -> tuple[int, int, int, int] | None:
-    left, top, right, bottom = box
-    width, height = size
-    left = max(0, left)
-    top = max(0, top)
-    right = min(width - 1, right)
-    bottom = min(height - 1, bottom)
-    if right < left or bottom < top:
-        return None
-    return (left, top, right, bottom)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    extent_x, extent_y = extent
+    stride_x, stride_y = stride
+
+    assembler = HeatmapAssembler(
+        extent_x,
+        extent_y,
+        stride_x,
+        stride_y,
+        stride_x,
+        stride_y,
+        dtype=torch.float32,
+    )
+    assembler.update(
+        torch.from_numpy(values.astype(np.float32)),
+        torch.from_numpy(xs),
+        torch.from_numpy(ys),
+    )
+
+    grid = assembler.compute().round().to(torch.uint8).numpy()
+    grid[assembler._count.numpy() == 0] = background_value
+    grid = np.ascontiguousarray(grid)
+
+    mask = pyvips.Image.new_from_array(grid).cast(pyvips.BandFormat.UCHAR)
+    mask = mask.resize(
+        assembler.common_divisor_x,
+        vscale=assembler.common_divisor_y,
+        kernel=pyvips.enums.Kernel.NEAREST,
+    )
+    offset_x = (tile_extent[0] - stride_x) // 2
+    offset_y = (tile_extent[1] - stride_y) // 2
+    mask = mask.embed(
+        offset_x,
+        offset_y,
+        extent_x,
+        extent_y,
+        extend=pyvips.enums.Extend.BACKGROUND,
+        background=[background_value],
+    )
+    write_big_tiff(mask, path, mpp[0], mpp[1])
 
 
 def _to_cpu_batch(batch: Mapping[str, Any]) -> dict[str, Any]:
@@ -291,53 +332,3 @@ def _resolve_uri(uri: str) -> str:
 
 def _safe_filename(value: str) -> str:
     return sub(r"[^A-Za-z0-9_.-]+", "_", value)
-
-
-def _write_vips_prediction_map(
-    rows: list[dict[Any, Any]],
-    value_key: str,
-    size: tuple[int, int],
-    tile_extent: tuple[int, int],
-    stride: tuple[int, int],
-    draw_region: str,
-    background_value: int,
-    path: Path,
-    mpp_x: float,
-    mpp_y: float,
-) -> None:
-    import pyvips
-    from rationai.masks import write_big_tiff
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    width, height = size
-
-    # Draw into a single numpy buffer. Chaining pyvips.draw_rect rebuilds the
-    # full-extent image per tile (O(n_tiles * width * height)) and hangs on WSI
-    # extents; numpy slice assignment is one allocation + O(total pixels).
-    buffer = np.full((height, width), background_value, dtype=np.uint8)
-
-    for row in rows:
-        box = _clip_box(
-            _tile_box(
-                x=int(row["x"]),
-                y=int(row["y"]),
-                tile_extent=tile_extent,
-                stride=stride,
-                draw_region=draw_region,
-            ),
-            size=size,
-        )
-        if box is None:
-            continue
-        left, top, right, bottom = box
-        value = (
-            int(int(row["pred"]) != int(row["target"]))
-            if value_key == "_error"
-            else int(row[value_key])
-        )
-        buffer[top : bottom + 1, left : right + 1] = value
-
-    vips_image = pyvips.Image.new_from_memory(
-        buffer.tobytes(), width, height, 1, "uchar"
-    )
-    write_big_tiff(vips_image, path=path, mpp_x=mpp_x, mpp_y=mpp_y)
