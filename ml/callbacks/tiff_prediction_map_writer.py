@@ -209,7 +209,6 @@ class TiffPredictionMapWriter(Callback):
             extent=extent,
             tile_extent=tile_extent,
             stride=stride,
-            background_value=self.background_value,
             path=Path(output_path, "pred", filename),
             mpp=mpp,
         )
@@ -227,7 +226,6 @@ class TiffPredictionMapWriter(Callback):
             extent=extent,
             tile_extent=tile_extent,
             stride=stride,
-            background_value=self.background_value,
             path=Path(output_path, "errors", filename),
             mpp=mpp,
         )
@@ -264,6 +262,7 @@ class _ClassVoteAssembler:
         self._ty = tile_y // self.cdy
         self._gx = extent_x // self.cdx
         self._gy = extent_y // self.cdy
+        self._n_classes = n_classes
         self._acc = torch.zeros(
             n_classes, self._gy, self._gx, dtype=torch.float32
         )
@@ -283,10 +282,17 @@ class _ClassVoteAssembler:
             self._acc[:, y0:y1, x0:x1] += prob[:, None, None]
             self._count[y0:y1, x0:x1] += 1
 
-    def labels(self, background_value: int) -> np.ndarray:
-        labels = self._acc.argmax(0).to(torch.uint8)
-        labels[self._count == 0] = background_value
-        return np.ascontiguousarray(labels.numpy())
+    def labels(self) -> np.ndarray:
+        """Encode like ``remap_annotation_masks``: class ``i`` (0-based) ->
+        ``round(255 * (i + 1) / n_classes)``, never-covered pixels -> ``0``.
+
+        The reporting tool expects GT and prediction masks in the same
+        evenly-spread value space, so this must mirror that LUT exactly.
+        """
+        idx = self._acc.argmax(0).numpy()
+        out = _spread_lut(self._n_classes)[idx].astype(np.uint8)
+        out[self._count.numpy() == 0] = 0
+        return np.ascontiguousarray(out)
 
 
 def _emit_mask(
@@ -329,7 +335,6 @@ def _write_class_map(
     extent: tuple[int, int],
     tile_extent: tuple[int, int],
     stride: tuple[int, int],
-    background_value: int,
     path: Path,
     mpp: tuple[float, float],
 ) -> None:
@@ -348,11 +353,11 @@ def _write_class_map(
         torch.from_numpy(ys),
     )
     _emit_mask(
-        assembler.labels(background_value),
+        assembler.labels(),
         assembler.cdx,
         assembler.cdy,
         extent,
-        background_value,
+        0,
         path,
         mpp,
     )
@@ -365,14 +370,15 @@ def _write_error_map(
     extent: tuple[int, int],
     tile_extent: tuple[int, int],
     stride: tuple[int, int],
-    background_value: int,
     path: Path,
     mpp: tuple[float, float],
 ) -> None:
     """Per-tile error (pred != target) averaged over the full tile footprint.
 
     Averaging a 0/1 error fraction across overlapping tiles is meaningful
-    (fraction of covering tiles that were wrong); thresholded back to {0, 1}.
+    (fraction of covering tiles that were wrong); thresholded back to a 2-class
+    map encoded in the same spread space as the GT (correct -> low value,
+    wrong -> 255), background -> 0.
     """
     from rationai.masks.heatmap_assembler import HeatmapAssembler
 
@@ -390,14 +396,15 @@ def _write_error_map(
         torch.from_numpy(xs),
         torch.from_numpy(ys),
     )
-    grid = (assembler.compute() >= 0.5).to(torch.uint8).numpy()
-    grid[assembler._count.numpy() == 0] = background_value
+    wrong = (assembler.compute() >= 0.5).numpy().astype(np.intp)
+    grid = _spread_lut(2)[wrong]  # correct -> 128, wrong -> 255
+    grid[assembler._count.numpy() == 0] = 0
     _emit_mask(
         np.ascontiguousarray(grid),
         assembler.common_divisor_x,
         assembler.common_divisor_y,
         extent,
-        background_value,
+        0,
         path,
         mpp,
     )
@@ -437,3 +444,17 @@ def _resolve_uri(uri: str) -> str:
 
 def _safe_filename(value: str) -> str:
     return sub(r"[^A-Za-z0-9_.-]+", "_", value)
+
+
+def _spread_lut(n_classes: int) -> np.ndarray:
+    """0-based class index -> evenly-spread uint8 value.
+
+    Mirrors ``preprocessing/remap_annotation_masks.py`` exactly so prediction
+    masks share the GT value space the reporting tool expects:
+    class ``i`` -> ``round(255 * (i + 1) / n_classes)``. Index 0 of the
+    returned array is unused by callers (background is set separately to 0).
+    """
+    return np.array(
+        [round(255 * (i + 1) / n_classes) for i in range(n_classes)],
+        dtype=np.uint8,
+    )
