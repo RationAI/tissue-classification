@@ -13,6 +13,14 @@ defaults:
 # WSI-aligned prediction maps as the LBFGS test.
 mode: test
 
+# num_workers MUST stay 0. EmbeddingTilesDataset loads the entire split into
+# one in-memory numpy array in __init__ and __getitem__ is pure numpy indexing
+# (no per-item IO), so workers give zero speedup; num_workers>0 forks the
+# parent (pyarrow/mlflow/fsspec thread state + large array) and deadlocks
+# before the first test batch. embedding_final defaults to 4; override here.
+data:
+  num_workers: 0
+
 trainer:
   callbacks:
     tiff_prediction_maps:

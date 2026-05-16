@@ -5,14 +5,18 @@ defaults:
   - _self_
 
 # Test the LBFGS final checkpoint on the held-out test split. The full-batch
-# settings (batch_size 1e9, num_workers 0) are a TRAINING requirement for the
-# convex LBFGS solve only; at test there is no optimization, so revert to a
-# normal batch to avoid loading the whole test set as one tensor (OOM).
+# batch_size=1e9 is a TRAINING requirement for the convex LBFGS solve only; at
+# test there is no optimization, so revert to a normal batch to avoid loading
+# the whole test set as one tensor (OOM).
+#
+# num_workers MUST stay 0. EmbeddingTilesDataset loads the entire split into
+# one in-memory numpy array in __init__ and __getitem__ is pure numpy indexing
+# (no per-item IO), so workers give zero speedup; num_workers>0 forks the
+# parent (which holds pyarrow/mlflow/fsspec thread state + the large array),
+# which deadlocks before the first test batch.
 # Same model architecture as the final run (required for state_dict load).
 mode: test
 
 data:
   batch_size: 1024
-  num_workers: 4
-  train_shuffle: true
-  train_drop_last: true
+  num_workers: 0
