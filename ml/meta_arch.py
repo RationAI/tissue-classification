@@ -165,6 +165,7 @@ class MetaArch(LightningModule):
             "y": ys.cpu(),
             "target": targets.cpu(),
             "pred": preds.cpu(),
+            "probs": outputs.softmax(dim=1).cpu(),
         }
 
     def on_test_epoch_end(self) -> None:

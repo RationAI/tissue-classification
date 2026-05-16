@@ -200,10 +200,10 @@ class TiffPredictionMapWriter(Callback):
 
         xs = predictions["x"].to_numpy(dtype=np.int64)
         ys = predictions["y"].to_numpy(dtype=np.int64)
-        preds = predictions["pred"].to_numpy(dtype=np.int64)
+        probs = np.stack(predictions["probs"].to_numpy()).astype(np.float32)
 
-        _write_assembled_map(
-            values=preds,
+        _write_class_map(
+            probs=probs,
             xs=xs,
             ys=ys,
             extent=extent,
@@ -219,9 +219,9 @@ class TiffPredictionMapWriter(Callback):
 
         errors = (
             predictions["pred"].to_numpy() != predictions["target"].to_numpy()
-        ).astype(np.int64)
-        _write_assembled_map(
-            values=errors,
+        ).astype(np.float32)
+        _write_error_map(
+            errors=errors,
             xs=xs,
             ys=ys,
             extent=extent,
@@ -233,8 +233,97 @@ class TiffPredictionMapWriter(Callback):
         )
 
 
-def _write_assembled_map(
-    values: np.ndarray,
+class _ClassVoteAssembler:
+    """Confidence-weighted per-class accumulator over the full tile footprint.
+
+    Mirrors ``HeatmapAssembler``'s GCD-compressed grid + ``(x, y)`` -> ROI
+    mapping, but accumulates the per-class softmax of every tile that covers a
+    cell instead of summing a categorical index. Overlapping strided tiles are
+    fused by ``argmax`` over the summed probabilities, so heavy stride overlap
+    (e.g. tile 224 / stride 112) is used instead of discarded. ``count == 0``
+    marks never-covered cells as background.
+    """
+
+    def __init__(
+        self,
+        extent_x: int,
+        extent_y: int,
+        tile_x: int,
+        tile_y: int,
+        stride_x: int,
+        stride_y: int,
+        n_classes: int,
+    ) -> None:
+        from math import gcd
+
+        self.cdx = gcd(stride_x, tile_x)
+        self.cdy = gcd(stride_y, tile_y)
+        self._sx = stride_x // self.cdx
+        self._sy = stride_y // self.cdy
+        self._tx = tile_x // self.cdx
+        self._ty = tile_y // self.cdy
+        self._gx = extent_x // self.cdx
+        self._gy = extent_y // self.cdy
+        self._acc = torch.zeros(
+            n_classes, self._gy, self._gx, dtype=torch.float32
+        )
+        self._count = torch.zeros(self._gy, self._gx, dtype=torch.int32)
+
+    def update(
+        self, probs: torch.Tensor, xs: torch.Tensor, ys: torch.Tensor
+    ) -> None:
+        for prob, x, y in zip(probs, xs, ys, strict=False):
+            cx = int(x.item()) // self.cdx
+            cy = int(y.item()) // self.cdy
+            x0, y0 = cx * self._sx, cy * self._sy
+            x1 = min(x0 + self._tx, self._gx)
+            y1 = min(y0 + self._ty, self._gy)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            self._acc[:, y0:y1, x0:x1] += prob[:, None, None]
+            self._count[y0:y1, x0:x1] += 1
+
+    def labels(self, background_value: int) -> np.ndarray:
+        labels = self._acc.argmax(0).to(torch.uint8)
+        labels[self._count == 0] = background_value
+        return np.ascontiguousarray(labels.numpy())
+
+
+def _emit_mask(
+    grid: np.ndarray,
+    cdx: int,
+    cdy: int,
+    extent: tuple[int, int],
+    background_value: int,
+    path: Path,
+    mpp: tuple[float, float],
+) -> None:
+    """Upscale the GCD-compressed grid back to WSI extent and write a BigTIFF.
+
+    NEAREST resize by the GCD factor (tile footprint placed at its true
+    position, no recenter), background-padded to the full extent.
+    """
+    import pyvips
+    from rationai.masks import write_big_tiff
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mask = pyvips.Image.new_from_array(grid).cast(pyvips.BandFormat.UCHAR)
+    mask = mask.resize(
+        cdx, vscale=cdy, kernel=pyvips.enums.Kernel.NEAREST
+    )
+    mask = mask.embed(
+        0,
+        0,
+        extent[0],
+        extent[1],
+        extend=pyvips.enums.Extend.BACKGROUND,
+        background=[background_value],
+    )
+    write_big_tiff(mask, path, mpp[0], mpp[1])
+
+
+def _write_class_map(
+    probs: np.ndarray,
     xs: np.ndarray,
     ys: np.ndarray,
     extent: tuple[int, int],
@@ -244,60 +333,74 @@ def _write_assembled_map(
     path: Path,
     mpp: tuple[float, float],
 ) -> None:
-    """Assemble per-tile scalar predictions into a WSI-aligned uint8 BigTIFF.
-
-    Uses ``HeatmapAssembler`` with the tile footprint set to ``stride`` so
-    tiles are non-overlapping (``central_stride`` semantics): the count grid
-    stays <= 1, so no categorical class-index averaging occurs. The assembler
-    keeps a GCD-compressed grid (extent / stride), avoiding a full-extent
-    in-RAM buffer. Pixels never covered by a tile are written as
-    ``background_value``; the grid is recentered by ``(tile - stride) // 2``
-    on embed to match the tile's central receptive region.
-    """
-    import pyvips
-    from rationai.masks import write_big_tiff
-    from rationai.masks.heatmap_assembler import HeatmapAssembler
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    extent_x, extent_y = extent
-    stride_x, stride_y = stride
-
-    assembler = HeatmapAssembler(
-        extent_x,
-        extent_y,
-        stride_x,
-        stride_y,
-        stride_x,
-        stride_y,
-        dtype=torch.float32,
+    assembler = _ClassVoteAssembler(
+        extent[0],
+        extent[1],
+        tile_extent[0],
+        tile_extent[1],
+        stride[0],
+        stride[1],
+        n_classes=probs.shape[1],
     )
     assembler.update(
-        torch.from_numpy(values.astype(np.float32)),
+        torch.from_numpy(probs),
         torch.from_numpy(xs),
         torch.from_numpy(ys),
     )
+    _emit_mask(
+        assembler.labels(background_value),
+        assembler.cdx,
+        assembler.cdy,
+        extent,
+        background_value,
+        path,
+        mpp,
+    )
 
-    grid = assembler.compute().round().to(torch.uint8).numpy()
+
+def _write_error_map(
+    errors: np.ndarray,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    extent: tuple[int, int],
+    tile_extent: tuple[int, int],
+    stride: tuple[int, int],
+    background_value: int,
+    path: Path,
+    mpp: tuple[float, float],
+) -> None:
+    """Per-tile error (pred != target) averaged over the full tile footprint.
+
+    Averaging a 0/1 error fraction across overlapping tiles is meaningful
+    (fraction of covering tiles that were wrong); thresholded back to {0, 1}.
+    """
+    from rationai.masks.heatmap_assembler import HeatmapAssembler
+
+    assembler = HeatmapAssembler(
+        extent[0],
+        extent[1],
+        tile_extent[0],
+        tile_extent[1],
+        stride[0],
+        stride[1],
+        dtype=torch.float32,
+    )
+    assembler.update(
+        torch.from_numpy(errors),
+        torch.from_numpy(xs),
+        torch.from_numpy(ys),
+    )
+    grid = (assembler.compute() >= 0.5).to(torch.uint8).numpy()
     grid[assembler._count.numpy() == 0] = background_value
-    grid = np.ascontiguousarray(grid)
-
-    mask = pyvips.Image.new_from_array(grid).cast(pyvips.BandFormat.UCHAR)
-    mask = mask.resize(
+    _emit_mask(
+        np.ascontiguousarray(grid),
         assembler.common_divisor_x,
-        vscale=assembler.common_divisor_y,
-        kernel=pyvips.enums.Kernel.NEAREST,
+        assembler.common_divisor_y,
+        extent,
+        background_value,
+        path,
+        mpp,
     )
-    offset_x = (tile_extent[0] - stride_x) // 2
-    offset_y = (tile_extent[1] - stride_y) // 2
-    mask = mask.embed(
-        offset_x,
-        offset_y,
-        extent_x,
-        extent_y,
-        extend=pyvips.enums.Extend.BACKGROUND,
-        background=[background_value],
-    )
-    write_big_tiff(mask, path, mpp[0], mpp[1])
 
 
 def _to_cpu_batch(batch: Mapping[str, Any]) -> dict[str, Any]:
@@ -310,17 +413,19 @@ def _to_cpu_batch(batch: Mapping[str, Any]) -> dict[str, Any]:
 def _batches_to_dataframe(batches: list[dict[str, Any]]) -> pd.DataFrame:
     rows: list[pd.DataFrame] = []
     for batch in batches:
-        rows.append(
-            pd.DataFrame(
-                {
-                    "slide_id": list(batch["slide_id"]),
-                    "x": batch["x"].numpy(),
-                    "y": batch["y"].numpy(),
-                    "target": batch["target"].numpy(),
-                    "pred": batch["pred"].numpy(),
-                }
-            )
+        frame = pd.DataFrame(
+            {
+                "slide_id": list(batch["slide_id"]),
+                "x": batch["x"].numpy(),
+                "y": batch["y"].numpy(),
+                "target": batch["target"].numpy(),
+                "pred": batch["pred"].numpy(),
+            }
         )
+        # per-row softmax vector kept as an object column so it survives the
+        # per-slide groupby; stacked back to (n, C) in the assembler.
+        frame["probs"] = list(batch["probs"].numpy())
+        rows.append(frame)
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
 

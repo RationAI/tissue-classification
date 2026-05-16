@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/ml/linear_classifier_final
+  - /ml/linear_classifier_final
   - override /ml/trainer: default
   - _self_
 

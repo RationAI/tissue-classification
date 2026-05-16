@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/ml/linear_classifier_final
+  - /ml/linear_classifier_final
   - _self_
 
 # LBFGS final: exact solve of the convex objective on the full training batch.
