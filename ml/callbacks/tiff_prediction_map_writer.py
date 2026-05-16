@@ -118,17 +118,30 @@ class TiffPredictionMapWriter(Callback):
             if self.write_errors:
                 Path(output_path, "errors").mkdir(parents=True, exist_ok=True)
 
-            for slide_id, slide_predictions in self._select_slide_groups(predictions):
+            slide_groups = self._select_slide_groups(predictions)
+            print(
+                f"[TiffPredictionMapWriter] writing {len(slide_groups)} "
+                f"prediction map(s)"
+            )
+            for index, (slide_id, slide_predictions) in enumerate(slide_groups, start=1):
                 slide = slides_by_id.get(str(slide_id))
                 if slide is None:
                     raise KeyError(
                         f"slide_id {slide_id!r} not found in slides artifact "
                         f"{self.slides_uri!r}"
                     )
+                print(
+                    f"[TiffPredictionMapWriter] {index}/{len(slide_groups)} "
+                    f"{Path(str(slide['path'])).name}"
+                )
                 self._write_slide_maps(slide, slide_predictions, output_path)
 
             active = mlflow.active_run()
             if active is not None:
+                print(
+                    f"[TiffPredictionMapWriter] logging artifacts to "
+                    f"{self.artifact_path}"
+                )
                 mlflow.log_artifacts(output_dir, artifact_path=self.artifact_path)
 
     def _select_slide_groups(
