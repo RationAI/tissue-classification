@@ -1,0 +1,25 @@
+# @package _global_
+
+model:
+  backbone:
+    _target_: torch.nn.Identity
+
+  decode_head:
+    _target_: torch.nn.Linear
+    in_features: 2560
+    out_features: ${len:${class_indices}}
+
+  class_indices: ${class_indices}
+
+  optimizer: adamw
+  learning_rate: 1.0e-4
+  weight_decay: 0.0
+  lbfgs:
+    max_iter: 100
+    max_eval: null
+    tolerance_grad: 1.0e-7
+    tolerance_change: 1.0e-9
+    history_size: 100
+    line_search_fn: strong_wolfe
+    accumulate_batches: 1
+    accumulate_on_cpu: false

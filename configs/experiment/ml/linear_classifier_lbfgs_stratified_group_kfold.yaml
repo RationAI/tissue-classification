@@ -1,0 +1,27 @@
+# @package _global_
+
+defaults:
+  - /experiment/ml/linear_classifier_stratified_group_kfold
+  - _self_
+
+trainer:
+  max_epochs: 10
+
+data:
+  batch_size: 1000000000
+  train_shuffle: false
+  train_drop_last: false
+  num_workers: 0
+
+model:
+  optimizer: lbfgs
+  learning_rate: 1.0
+  lbfgs:
+    max_iter: 100
+    max_eval: null
+    tolerance_grad: 1.0e-7
+    tolerance_change: 1.0e-9
+    history_size: 100
+    line_search_fn: strong_wolfe
+    accumulate_batches: 1
+    accumulate_on_cpu: false

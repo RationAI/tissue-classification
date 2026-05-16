@@ -12,6 +12,8 @@ from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
+from preprocessing._labels import compute_label_and_tissue_prop
+
 
 def derive_labels(
     dataset: Dataset,
@@ -20,10 +22,7 @@ def derive_labels(
     """Derive label, tissue_prop, and slide_id arrays from the dataset."""
 
     def compute(batch: dict[str, Any]) -> dict[str, Any]:
-        roi_df = pd.DataFrame({col: batch[col] for col in roi_cols})
-        tp = roi_df.sum(axis=1).values
-        lbl = roi_df.idxmax(axis=1).str.removeprefix("roi_coverage_").values
-        lbl[tp == 0] = "background"
+        lbl, tp = compute_label_and_tissue_prop(batch, roi_cols)
         return {"label": lbl.tolist(), "tissue_prop": tp.tolist()}
 
     label_ds = dataset.select_columns(["slide_id", *roi_cols]).map(
