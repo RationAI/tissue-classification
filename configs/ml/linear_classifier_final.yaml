@@ -10,6 +10,8 @@ defaults:
 
 mode: fit
 
+embedding_model_name: Virchow2
+embedding_dim: 2560
 embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_id}
 kfold_strategy: stratified
 kfold_run_id: ${dataset.mlflow_artifacts.stratified_kfold_run_id}
@@ -34,8 +36,10 @@ mlflow_artifact_path: linear_classifier_final
 
 metadata:
   run_name: Final Linear Classifier ${dataset.name}
-  description: "Final linear probe over frozen Virchow2 embeddings trained on all training folds for ${trainer.max_epochs} epochs."
+  description: "Final linear probe over frozen ${embedding_model_name} embeddings trained on all training folds for ${trainer.max_epochs} epochs."
   hyperparams:
+    embedding_model_name: ${embedding_model_name}
+    embedding_dim: ${embedding_dim}
     embedding_run_id: ${embedding_run_id}
     kfold_strategy: ${kfold_strategy}
     kfold_run_id: ${kfold_run_id}

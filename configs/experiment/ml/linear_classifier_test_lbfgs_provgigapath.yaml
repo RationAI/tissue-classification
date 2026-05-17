@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - /experiment/ml/linear_classifier_final_lbfgs_provgigapath
+  - override /ml/trainer: default
+  - _self_
+
+# Held-out test for the final ProvGigaPath LBFGS checkpoint. Uses the same
+# filtered labeled test split, thresholds, metrics, and checkpoint convention as
+# the Virchow2 test config. Checkpoint is passed on the CLI.
+mode: test
+
+data:
+  batch_size: 1024
+  num_workers: 0

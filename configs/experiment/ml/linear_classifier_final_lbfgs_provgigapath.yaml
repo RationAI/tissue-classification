@@ -1,0 +1,19 @@
+# @package _global_
+
+defaults:
+  - /experiment/ml/linear_classifier_final_lbfgs
+  - _self_
+
+embedding_model_name: ProvGigaPath
+embedding_dim: 1536
+embedding_run_id: 410c8672471348ceb4c58817f70fa097
+mlflow_artifact_path: linear_classifier_final_provgigapath
+
+# Set after Stage 1 from ProvGigaPath's own LBFGS sweep selected by
+# validation/f1_macro.
+model:
+  weight_decay: ???
+
+metadata:
+  run_name: Final Linear Classifier LBFGS ProvGigaPath ${dataset.name}
+  description: "Final LBFGS linear probe over frozen ProvGigaPath embeddings, exact full-batch solve with the ProvGigaPath-selected weight decay."
