@@ -2,6 +2,7 @@
 
 defaults:
   - /experiment/ml/linear_classifier_final_lbfgs
+  - override /ml/trainer: default
   - _self_
 
 # Test the LBFGS final checkpoint on the held-out test split. The full-batch

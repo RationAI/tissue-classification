@@ -8,9 +8,6 @@ defaults:
 # architecture as the final run (required for state_dict load); optimizer
 # fields are inert at test. Checkpoint is passed on the CLI.
 #
-# The AdamW final inherits trainer/default (early stopping for fit), which has
-# no TIFF map writer. Add it here so the AdamW test produces the same
-# WSI-aligned prediction maps as the LBFGS test.
 mode: test
 
 # num_workers MUST stay 0. EmbeddingTilesDataset loads the entire split into
@@ -20,11 +17,3 @@ mode: test
 # before the first test batch. embedding_final defaults to 4; override here.
 data:
   num_workers: 0
-
-trainer:
-  callbacks:
-    tiff_prediction_maps:
-      _target_: ml.callbacks.TiffPredictionMapWriter
-      slides_uri: runs:/${dataset.mlflow_artifacts.tiling_run_id}/test_split/slides.parquet
-      artifact_path: prediction_maps_tiff
-      draw_region: central_stride

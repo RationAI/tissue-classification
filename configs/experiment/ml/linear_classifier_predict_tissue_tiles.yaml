@@ -1,0 +1,43 @@
+# @package _global_
+
+defaults:
+  - /ml/linear_classifier_final
+  - _self_
+
+# Predict over every test-split tile that intersects the tissue mask. This run
+# is unlabeled: it writes predictions/maps for review and does not compute test
+# metrics.
+mode: predict
+
+tissue_embedding_run_id: ???
+tissue_stats_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}
+tissue_stats_artifact_path: tissue_stats
+tissue_column: tile_tissue_coverage
+tissue_min: 0.0
+
+test_embedding_uri: runs:/${tissue_embedding_run_id}/test/tiles
+test_metadata_uri: runs:/${tissue_stats_run_id}/${tissue_stats_artifact_path}/test_tiles.parquet
+
+data:
+  num_workers: 0
+  predict:
+    _target_: ml.data.datasets.UnlabeledEmbeddingTilesDataset
+    embedding_uri: ${test_embedding_uri}
+    metadata_uri: ${test_metadata_uri}
+    tissue_column: ${tissue_column}
+    tissue_min: ${tissue_min}
+
+trainer:
+  callbacks:
+    tiff_prediction_maps:
+      write_errors: false
+
+metadata:
+  run_name: Predict Linear Classifier tissue tiles ${dataset.name}
+  description: "Predict final linear classifier over all held-out test tiles intersecting tissue masks for external doctor review."
+  hyperparams:
+    tissue_embedding_run_id: ${tissue_embedding_run_id}
+    tissue_stats_run_id: ${tissue_stats_run_id}
+    tissue_stats_artifact_path: ${tissue_stats_artifact_path}
+    tissue_column: ${tissue_column}
+    tissue_min: ${tissue_min}
