@@ -7,12 +7,14 @@ defaults:
 embedding_model_name: ProvGigaPath
 embedding_dim: 1536
 embedding_run_id: 410c8672471348ceb4c58817f70fa097
+kfold_strategy: stratified_group
+kfold_run_id: ${dataset.mlflow_artifacts.stratified_group_kfold_run_id}
 mlflow_artifact_path: linear_classifier_final_provgigapath
 
 # Set after Stage 1 from ProvGigaPath's own AdamW sweep selected by
 # validation/f1_macro.
 model:
-  weight_decay: ???
+  weight_decay: 1.0e-4
 
 metadata:
   run_name: Final Linear Classifier AdamW ProvGigaPath ${dataset.name}
