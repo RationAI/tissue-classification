@@ -126,6 +126,7 @@ class TiffPredictionMapWriter(Callback):
             Path(output_path, "pred").mkdir(parents=True, exist_ok=True)
             if self.write_errors:
                 Path(output_path, "errors").mkdir(parents=True, exist_ok=True)
+            Path(output_path, "prob").mkdir(parents=True, exist_ok=True)
 
             slide_groups = self._select_slide_groups(predictions)
             print(
@@ -145,7 +146,12 @@ class TiffPredictionMapWriter(Callback):
                     f"[TiffPredictionMapWriter] {index}/{len(slide_groups)} "
                     f"{Path(str(slide['path'])).name}"
                 )
-                self._write_slide_maps(slide, slide_predictions, output_path)
+                self._write_slide_maps(
+                    slide,
+                    slide_predictions,
+                    output_path,
+                    class_names=getattr(trainer.lightning_module, "class_names", None),
+                )
 
             active = mlflow.active_run()
             if active is not None:
@@ -191,6 +197,7 @@ class TiffPredictionMapWriter(Callback):
         slide: dict[str, Any],
         predictions: pd.DataFrame,
         output_path: Path,
+        class_names: list[str] | None,
     ) -> None:
         filename = f"{_safe_filename(Path(str(slide['path'])).stem)}.tiff"
         extent = (int(slide["extent_x"]), int(slide["extent_y"]))
@@ -212,6 +219,24 @@ class TiffPredictionMapWriter(Callback):
             tile_extent=tile_extent,
             stride=stride,
             path=Path(output_path, "pred", filename),
+            mpp=mpp,
+        )
+
+        names = (
+            class_names
+            if class_names is not None and len(class_names) == probs.shape[1]
+            else [f"class_{i}" for i in range(probs.shape[1])]
+        )
+        _write_per_class_probability_maps(
+            probs=probs,
+            class_names=names,
+            xs=xs,
+            ys=ys,
+            extent=extent,
+            tile_extent=tile_extent,
+            stride=stride,
+            output_dir=Path(output_path, "prob"),
+            filename=filename,
             mpp=mpp,
         )
 
@@ -406,6 +431,57 @@ def _write_error_map(
         path,
         mpp,
     )
+
+
+def _write_per_class_probability_maps(
+    probs: np.ndarray,
+    class_names: list[str],
+    xs: np.ndarray,
+    ys: np.ndarray,
+    extent: tuple[int, int],
+    tile_extent: tuple[int, int],
+    stride: tuple[int, int],
+    output_dir: Path,
+    filename: str,
+    mpp: tuple[float, float],
+) -> None:
+    """Write one grayscale probability map per class.
+
+    Each class channel is assembled independently with HeatmapAssembler, so
+    overlapping tiles are averaged exactly like scalar heatmaps. Values are
+    encoded as uint8 probabilities in [0, 255], with never-covered pixels set
+    to 0.
+    """
+    from rationai.masks.heatmap_assembler import HeatmapAssembler
+
+    xs_t = torch.from_numpy(xs)
+    ys_t = torch.from_numpy(ys)
+    for class_idx, class_name in enumerate(class_names):
+        assembler = HeatmapAssembler(
+            extent[0],
+            extent[1],
+            tile_extent[0],
+            tile_extent[1],
+            stride[0],
+            stride[1],
+            dtype=torch.float32,
+        )
+        assembler.update(
+            torch.from_numpy(probs[:, class_idx].astype(np.float32, copy=False)),
+            xs_t,
+            ys_t,
+        )
+        grid = np.clip(assembler.compute().numpy() * 255.0, 0, 255).astype(np.uint8)
+        grid[assembler._count.numpy() == 0] = 0
+        _emit_mask(
+            np.ascontiguousarray(grid),
+            assembler.common_divisor_x,
+            assembler.common_divisor_y,
+            extent,
+            0,
+            output_dir / _safe_filename(class_name) / filename,
+            mpp,
+        )
 
 
 def _to_cpu_batch(batch: Mapping[str, Any]) -> dict[str, Any]:
