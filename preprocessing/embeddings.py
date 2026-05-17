@@ -55,7 +55,15 @@ class EmbedTiles:
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    for name in ["train", "test"]:
+    tile_source_run_id = config.get(
+        "tile_source_run_id", config.dataset.mlflow_artifacts.filter_tiles_run_id
+    )
+    tile_source_artifact_template = config.get(
+        "tile_source_artifact_template", "filter_tiles/{split}_tiles.parquet"
+    )
+    tile_filter_column = config.get("tile_filter_column")
+
+    for name in config.get("splits", ["train", "test"]):
         split_folder = Path(
             mlflow.artifacts.download_artifacts(
                 run_id=config.dataset.mlflow_artifacts.tiling_run_id,
@@ -69,19 +77,35 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
         tiles_path = Path(
             mlflow.artifacts.download_artifacts(
-                run_id=config.dataset.mlflow_artifacts.filter_tiles_run_id,
-                artifact_path=f"filter_tiles/{name}_tiles.parquet",
+                run_id=tile_source_run_id,
+                artifact_path=tile_source_artifact_template.format(split=name),
             )
         )
-        num_rows = pads.dataset(str(tiles_path), format="parquet").count_rows()
+        row_filter = (
+            pads.field(tile_filter_column) > 0
+            if tile_filter_column is not None
+            else None
+        )
+        num_rows = pads.dataset(str(tiles_path), format="parquet").count_rows(
+            filter=row_filter
+        )
         num_blocks = max(1, num_rows // config.block_size)
 
+        columns = ["slide_id", "x", "y"]
+        if tile_filter_column is not None:
+            columns.append(tile_filter_column)
         ds = ray.data.read_parquet(
             str(tiles_path),
-            columns=["slide_id", "x", "y"],
+            columns=columns,
             ray_remote_args={"memory": 8 * 1024**3},
             override_num_blocks=num_blocks,
-        ).map(
+        )
+        if tile_filter_column is not None:
+            ds = ds.filter(
+                lambda row, c: row[c] > 0, fn_kwargs={"c": tile_filter_column}
+            )
+            ds = ds.drop_columns([tile_filter_column])
+        ds = ds.map(
             lambda row, si: {**row, **si[row["slide_id"]]},
             fn_kwargs={"si": slide_info},
         )
