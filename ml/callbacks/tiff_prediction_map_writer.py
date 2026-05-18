@@ -227,7 +227,7 @@ class TiffPredictionMapWriter(Callback):
         output_path: Path,
         class_names: list[str] | None,
     ) -> None:
-        filename = f"{_safe_filename(Path(str(slide['path'])).stem)}.tiff"
+        filename = _slide_prediction_filename(slide["path"])
         extent = (int(slide["extent_x"]), int(slide["extent_y"]))
         tile_extent = (int(slide["tile_extent_x"]), int(slide["tile_extent_y"]))
         stride = (int(slide["stride_x"]), int(slide["stride_y"]))
@@ -514,6 +514,10 @@ def _resolve_uri(uri: str) -> str:
 
 def _safe_filename(value: str) -> str:
     return sub(r"[^A-Za-z0-9 _.-]+", "_", value)
+
+
+def _slide_prediction_filename(path: str | Path) -> str:
+    return Path(str(path)).with_suffix(".tiff").name
 
 
 def _spread_lut(n_classes: int) -> np.ndarray:
