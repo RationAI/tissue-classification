@@ -10,6 +10,7 @@ defaults:
 mode: predict
 final_train_run_id: 0e2230c722134ce0985e09a18ccadf75
 checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
+checkpoint_weights_only: false
 
 tissue_embedding_run_id: 95a02c93c164415e94702ad5c83ccca2
 tissue_stats_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}

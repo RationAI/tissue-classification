@@ -19,6 +19,7 @@ defaults:
 mode: test
 final_train_run_id: 0e2230c722134ce0985e09a18ccadf75
 checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
+checkpoint_weights_only: false
 
 data:
   batch_size: 1024
