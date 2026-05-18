@@ -21,6 +21,9 @@ test_embedding_uri: runs:/${tissue_embedding_run_id}/test/tiles
 test_metadata_uri: runs:/${tissue_stats_run_id}/${tissue_stats_artifact_path}/test_tiles.parquet
 
 data:
+  # num_workers MUST be 0 for this config. UnlabeledEmbeddingTilesDataset and
+  # EmbeddingTilesDataset load the entire split into memory in __init__; using
+  # worker processes (num_workers > 0) can deadlock after multiprocessing/fork.
   num_workers: 0
   predict:
     _target_: ml.data.datasets.UnlabeledEmbeddingTilesDataset

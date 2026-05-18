@@ -72,9 +72,9 @@ class TiffPredictionMapWriter(Callback):
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
-        if trainer.global_rank == 0 and isinstance(outputs, Mapping):
+        if isinstance(outputs, Mapping):
             self._batches.append(_to_cpu_batch(outputs))
-            if batch_idx % 50 == 0:
+            if trainer.global_rank == 0 and batch_idx % 50 == 0:
                 print(
                     f"[TiffPredictionMapWriter] test batch {batch_idx} "
                     f"({len(self._batches)} buffered)",
@@ -90,7 +90,7 @@ class TiffPredictionMapWriter(Callback):
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
-        if trainer.global_rank == 0 and outputs is not None:
+        if outputs is not None:
             self._batches.append(_to_cpu_batch(outputs))
 
     def on_test_epoch_end(
@@ -104,12 +104,14 @@ class TiffPredictionMapWriter(Callback):
         self._write_maps(trainer)
 
     def _write_maps(self, trainer: pl.Trainer) -> None:
-        if trainer.global_rank != 0 or not self._batches:
-            self._batches.clear()
+        batches = _gather_batches(self._batches)
+        self._batches.clear()
+        if trainer.global_rank != 0:
+            return
+        if not batches:
             return
 
-        predictions = _batches_to_dataframe(self._batches)
-        self._batches.clear()
+        predictions = _batches_to_dataframe(batches)
         if predictions.empty:
             return
 
@@ -224,6 +226,7 @@ class TiffPredictionMapWriter(Callback):
             stride=stride,
             path=pred_path,
             mpp=mpp,
+            background_value=self.background_value,
         )
         print(
             f"[TiffPredictionMapWriter] wrote pred/{filename}",
@@ -296,18 +299,19 @@ class _ClassVoteAssembler:
             self._acc[:, y0:y1, x0:x1] += prob[:, None, None]
             self._count[y0:y1, x0:x1] += 1
 
-    def labels(self) -> np.ndarray:
+    def labels(self, background_value: int = 0) -> np.ndarray:
         """Encode prediction labels like ``remap_annotation_masks``.
 
         Class ``i`` (0-based) maps to
-        ``round(255 * (i + 1) / n_classes)``. Never-covered pixels map to ``0``.
+        ``round(255 * (i + 1) / n_classes)``. Never-covered pixels map to
+        ``background_value``.
 
         The reporting tool expects GT and prediction masks in the same
         evenly-spread value space, so this must mirror that LUT exactly.
         """
         idx = self._acc.argmax(0).numpy()
         out = _spread_lut(self._n_classes)[idx].astype(np.uint8)
-        out[self._count.numpy() == 0] = 0
+        out[self._count.numpy() == 0] = _uint8_scalar(background_value)
         return np.ascontiguousarray(out)
 
 
@@ -351,6 +355,7 @@ def _write_class_map(
     stride: tuple[int, int],
     path: Path,
     mpp: tuple[float, float],
+    background_value: int = 0,
 ) -> None:
     assembler = _ClassVoteAssembler(
         extent[0],
@@ -367,11 +372,11 @@ def _write_class_map(
         torch.from_numpy(ys),
     )
     _emit_mask(
-        assembler.labels(),
+        assembler.labels(background_value),
         assembler.cdx,
         assembler.cdy,
         extent,
-        0,
+        int(_uint8_scalar(background_value)),
         path,
         mpp,
     )
@@ -437,6 +442,17 @@ def _write_per_class_probability_maps(
         )
 
 
+def _gather_batches(batches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        return batches
+
+    gathered: list[list[dict[str, Any]]] = [
+        [] for _ in range(torch.distributed.get_world_size())
+    ]
+    torch.distributed.all_gather_object(gathered, batches)
+    return [batch for rank_batches in gathered for batch in rank_batches]
+
+
 def _to_cpu_batch(batch: Mapping[str, Any]) -> dict[str, Any]:
     return {
         key: value.detach().cpu() if isinstance(value, torch.Tensor) else value
@@ -479,9 +495,13 @@ def _spread_lut(n_classes: int) -> np.ndarray:
     Mirrors ``preprocessing/remap_annotation_masks.py`` exactly so prediction
     masks share the GT value space the reporting tool expects:
     class ``i`` -> ``round(255 * (i + 1) / n_classes)``. Index 0 of the
-    returned array is unused by callers (background is set separately to 0).
+    returned array is unused by callers (background is set separately).
     """
     return np.array(
         [round(255 * (i + 1) / n_classes) for i in range(n_classes)],
         dtype=np.uint8,
     )
+
+
+def _uint8_scalar(value: int) -> int:
+    return np.asarray(value).clip(0, np.iinfo(np.uint8).max).astype(np.uint8).item()
