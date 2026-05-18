@@ -7,7 +7,9 @@ from typing import Any
 import httpx
 import hydra
 import mlflow.artifacts
+import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.dataset as pads
 import ray
 from omegaconf import DictConfig
@@ -51,6 +53,63 @@ class EmbedTiles:
         return row
 
 
+def select_slide_budget(
+    tiles_dataset: pads.Dataset,
+    row_filter: pads.Expression | None,
+    slide_order: pd.Series,
+    max_tiles: int,
+    seed: int,
+) -> tuple[set[str], int]:
+    """Select a deterministic random slide subset within a tile budget."""
+    if max_tiles <= 0:
+        raise ValueError(f"slide_sample_max_tiles must be positive, got {max_tiles}")
+
+    slide_ids = tiles_dataset.to_table(
+        columns=["slide_id"],
+        filter=row_filter,
+    ).column("slide_id")
+    counts = (
+        pa.table({"slide_id": slide_ids.value_counts()})
+        .flatten()
+        .to_pandas()
+        .rename(
+            columns={
+                "slide_id.values": "slide_id",
+                "slide_id.counts": "tile_count",
+            }
+        )
+    )
+    if counts.empty:
+        raise ValueError("No tiles available after applying the embedding tile filter")
+    counts["slide_id"] = counts["slide_id"].astype(str)
+
+    ordered_ids = slide_order.astype(str).tolist()
+    rank = {slide_id: index for index, slide_id in enumerate(ordered_ids)}
+    counts["_rank"] = counts["slide_id"].map(rank)
+    counts = counts.sort_values("_rank").drop(columns="_rank")
+
+    rng = np.random.default_rng(seed)
+    shuffled = counts.iloc[rng.permutation(len(counts))]
+
+    selected: list[str] = []
+    selected_tiles = 0
+    for row in shuffled.itertuples(index=False):
+        tile_count = int(row.tile_count)
+        if selected and selected_tiles + tile_count > max_tiles:
+            continue
+        selected.append(str(row.slide_id))
+        selected_tiles += tile_count
+        if selected_tiles >= max_tiles:
+            break
+
+    if not selected:
+        smallest = counts.sort_values("tile_count").iloc[0]
+        selected = [str(smallest["slide_id"])]
+        selected_tiles = int(smallest["tile_count"])
+
+    return set(selected), selected_tiles
+
+
 @with_cli_args(["+preprocessing=embeddings"])
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
@@ -62,6 +121,8 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         "tile_source_artifact_template", "filter_tiles/{split}_tiles.parquet"
     )
     tile_filter_column = config.get("tile_filter_column")
+    slide_sample_max_tiles = config.get("slide_sample_max_tiles")
+    slide_sample_seed = int(config.get("slide_sample_seed", 0))
 
     for name in config.get("splits", ["train", "test"]):
         split_folder = Path(
@@ -86,9 +147,30 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             if tile_filter_column is not None
             else None
         )
-        num_rows = pads.dataset(str(tiles_path), format="parquet").count_rows(
-            filter=row_filter
-        )
+        tiles_dataset = pads.dataset(str(tiles_path), format="parquet")
+        num_rows = tiles_dataset.count_rows(filter=row_filter)
+        selected_slide_ids: set[str] | None = None
+        if slide_sample_max_tiles is not None:
+            selected_slide_ids, num_rows = select_slide_budget(
+                tiles_dataset=tiles_dataset,
+                row_filter=row_filter,
+                slide_order=slides["id"],
+                max_tiles=int(slide_sample_max_tiles),
+                seed=slide_sample_seed,
+            )
+            slides = slides[slides["id"].astype(str).isin(selected_slide_ids)].copy()
+            slide_info = {
+                slide_id: info
+                for slide_id, info in slide_info.items()
+                if str(slide_id) in selected_slide_ids
+            }
+            print(
+                f"[main] split={name} selected {len(selected_slide_ids)} slides "
+                f"with {num_rows} tiles "
+                f"(slide_sample_max_tiles={slide_sample_max_tiles}, "
+                f"slide_sample_seed={slide_sample_seed})",
+                flush=True,
+            )
         num_blocks = max(1, num_rows // config.block_size)
 
         columns = ["slide_id", "x", "y"]
@@ -105,6 +187,11 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 lambda row, c: row[c] > 0, fn_kwargs={"c": tile_filter_column}
             )
             ds = ds.drop_columns([tile_filter_column])
+        if selected_slide_ids is not None:
+            ds = ds.filter(
+                lambda row, ids: str(row["slide_id"]) in ids,
+                fn_kwargs={"ids": selected_slide_ids},
+            )
         ds = ds.map(
             lambda row, si: {**row, **si[row["slide_id"]]},
             fn_kwargs={"si": slide_info},

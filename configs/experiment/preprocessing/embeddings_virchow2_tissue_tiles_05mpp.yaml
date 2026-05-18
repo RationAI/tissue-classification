@@ -11,7 +11,9 @@ splits:
 tile_source_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}
 tile_source_artifact_template: "tissue_stats/{split}_tiles.parquet"
 tile_filter_column: tile_tissue_coverage
+slide_sample_max_tiles: 2000000
+slide_sample_seed: 0
 
 metadata:
   run_name: "Embeddings: ${model} tissue tiles"
-  description: "Tile embeddings using ${model} over held-out test split tiles with tile_tissue_coverage > 0."
+  description: "Tile embeddings using ${model} over a sampled held-out test slide subset with tile_tissue_coverage > 0."
