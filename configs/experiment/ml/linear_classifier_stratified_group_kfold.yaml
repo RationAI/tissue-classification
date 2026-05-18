@@ -1,8 +1,13 @@
 # @package _global_
 
 defaults:
-  - /ml/linear_classifier
+  - /ml/task: kfold_linear_classifier
   - _self_
 
 kfold_strategy: stratified_group
 kfold_run_id: ${dataset.mlflow_artifacts.stratified_group_kfold_run_id}
+
+model:
+  optimizer: adamw
+  learning_rate: 1.0e-4
+  weight_decay: 0.0

@@ -1,13 +1,15 @@
 # @package _global_
 
 defaults:
-  - /ml/linear_classifier_final
+  - /ml/task: final_linear_classifier
   - _self_
 
 # Predict over every test-split tile that intersects the tissue mask. This run
 # is unlabeled: it writes predictions/maps for review and does not compute test
 # metrics.
 mode: predict
+final_train_run_id: 0e2230c722134ce0985e09a18ccadf75
+checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
 
 tissue_embedding_run_id: ???
 tissue_stats_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}
@@ -27,10 +29,19 @@ data:
     tissue_column: ${tissue_column}
     tissue_min: ${tissue_min}
 
-trainer:
-  callbacks:
-    tiff_prediction_maps:
-      write_errors: false
+model:
+  optimizer: lbfgs
+  learning_rate: 1.0
+  weight_decay: 1.0e-2
+  lbfgs:
+    max_iter: 100
+    max_eval: null
+    tolerance_grad: 1.0e-7
+    tolerance_change: 1.0e-9
+    history_size: 100
+    line_search_fn: strong_wolfe
+    accumulate_batches: 1
+    accumulate_on_cpu: false
 
 metadata:
   run_name: Predict Linear Classifier tissue tiles ${dataset.name}

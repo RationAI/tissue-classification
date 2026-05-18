@@ -3,8 +3,8 @@
 defaults:
   - /data: dataset
   - /class_mapping: collapse_alterations_to_other
-  - /ml/trainer: default
-  - /ml/data: embedding
+  - /ml/trainer: final_with_prediction_maps
+  - /ml/data: final_embedding_tiles
   - /ml/model: linear_classifier
   - _self_
 
@@ -20,8 +20,6 @@ test_embedding_uri: runs:/${embedding_run_id}/test/tiles
 train_metadata_uri: runs:/${kfold_run_id}/kfold_split/kfold_tiles.parquet
 test_metadata_uri: runs:/${filter_tiles_run_id}/filter_tiles/test_tiles.parquet
 
-val_fold: 0
-
 tissue_prop_min: 0.2
 thresholds:
   Nerve: 0.0
@@ -32,23 +30,19 @@ thresholds:
   Muscle: 0.5
   Other: 0.5
 
-mlflow_artifact_path: linear_classifier
+mlflow_artifact_path: linear_classifier_final
 
 metadata:
-  run_name: Linear Classifier ${dataset.name} ${kfold_strategy} fold=${val_fold} opt=${model.optimizer} wd=${model.weight_decay}
-  description: "Linear probe over frozen Virchow2 embeddings (run ${embedding_run_id}), ${kfold_strategy} kfold metadata ${kfold_run_id}."
+  run_name: Final Linear Classifier ${dataset.name}
+  description: "Final linear probe over frozen Virchow2 embeddings trained on all training folds for ${trainer.max_epochs} epochs."
   hyperparams:
     embedding_run_id: ${embedding_run_id}
     kfold_strategy: ${kfold_strategy}
     kfold_run_id: ${kfold_run_id}
     filter_tiles_run_id: ${filter_tiles_run_id}
-    val_fold: ${val_fold}
     tissue_prop_min: ${tissue_prop_min}
     thresholds: ${thresholds}
-    optimizer: ${model.optimizer}
     learning_rate: ${model.learning_rate}
     weight_decay: ${model.weight_decay}
-    lbfgs: ${model.lbfgs}
     batch_size: ${data.batch_size}
-    train_shuffle: ${data.train_shuffle}
-    train_drop_last: ${data.train_drop_last}
+    max_epochs: ${trainer.max_epochs}

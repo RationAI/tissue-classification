@@ -1,8 +1,8 @@
 # @package _global_
 
 defaults:
-  - /ml/linear_classifier_final
-  - override /ml/trainer: default
+  - /ml/task: final_linear_classifier
+  - override /ml/trainer: early_stopping
   - _self_
 
 # AdamW final: trained to convergence with the same early-stopping rule as the
