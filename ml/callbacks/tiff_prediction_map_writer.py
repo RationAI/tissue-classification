@@ -127,7 +127,8 @@ class TiffPredictionMapWriter(Callback):
             slide_groups = self._select_slide_groups(predictions)
             print(
                 f"[TiffPredictionMapWriter] writing {len(slide_groups)} "
-                f"prediction map(s)"
+                f"prediction map(s)",
+                flush=True,
             )
             for index, (slide_id, slide_predictions) in enumerate(
                 slide_groups, start=1
@@ -140,7 +141,8 @@ class TiffPredictionMapWriter(Callback):
                     )
                 print(
                     f"[TiffPredictionMapWriter] {index}/{len(slide_groups)} "
-                    f"{Path(str(slide['path'])).name}"
+                    f"{Path(str(slide['path'])).name}",
+                    flush=True,
                 )
                 self._write_slide_maps(
                     slide,
@@ -153,7 +155,8 @@ class TiffPredictionMapWriter(Callback):
             if active is not None:
                 print(
                     f"[TiffPredictionMapWriter] logging artifacts to "
-                    f"{self.artifact_path}"
+                    f"{self.artifact_path}",
+                    flush=True,
                 )
                 mlflow.log_artifacts(output_dir, artifact_path=self.artifact_path)
 
@@ -207,6 +210,11 @@ class TiffPredictionMapWriter(Callback):
             [np.asarray(prob, dtype=np.float32) for prob in predictions["probs"]]
         )
 
+        pred_path = Path(output_path, "pred", filename)
+        print(
+            f"[TiffPredictionMapWriter] writing pred/{filename}",
+            flush=True,
+        )
         _write_class_map(
             probs=probs,
             xs=xs,
@@ -214,8 +222,12 @@ class TiffPredictionMapWriter(Callback):
             extent=extent,
             tile_extent=tile_extent,
             stride=stride,
-            path=Path(output_path, "pred", filename),
+            path=pred_path,
             mpp=mpp,
+        )
+        print(
+            f"[TiffPredictionMapWriter] wrote pred/{filename}",
+            flush=True,
         )
 
         names = (
@@ -389,6 +401,11 @@ def _write_per_class_probability_maps(
     xs_t = torch.from_numpy(xs)
     ys_t = torch.from_numpy(ys)
     for class_idx, class_name in enumerate(class_names):
+        class_dir = _safe_filename(class_name)
+        print(
+            f"[TiffPredictionMapWriter] writing prob/{class_dir}/{filename}",
+            flush=True,
+        )
         assembler = HeatmapAssembler(
             extent[0],
             extent[1],
@@ -411,8 +428,12 @@ def _write_per_class_probability_maps(
             assembler.common_divisor_y,
             extent,
             0,
-            output_dir / _safe_filename(class_name) / filename,
+            output_dir / class_dir / filename,
             mpp,
+        )
+        print(
+            f"[TiffPredictionMapWriter] wrote prob/{class_dir}/{filename}",
+            flush=True,
         )
 
 
