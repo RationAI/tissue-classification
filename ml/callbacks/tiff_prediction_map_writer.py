@@ -29,7 +29,6 @@ class TiffPredictionMapWriter(Callback):
         artifact_path: str = "prediction_maps_tiff",
         background_value: int = 255,
         draw_region: str = "central_stride",
-        write_errors: bool = True,
         max_slides: int | None = None,
         slide_selection: str = "all",
     ) -> None:
@@ -51,7 +50,6 @@ class TiffPredictionMapWriter(Callback):
         self.artifact_path = artifact_path
         self.background_value = background_value
         self.draw_region = draw_region
-        self.write_errors = write_errors
         self.max_slides = max_slides
         self.slide_selection = slide_selection
         self._batches: list[dict[str, Any]] = []
@@ -124,8 +122,6 @@ class TiffPredictionMapWriter(Callback):
         with TemporaryDirectory(dir=Path(trainer.default_root_dir)) as output_dir:
             output_path = Path(output_dir)
             Path(output_path, "pred").mkdir(parents=True, exist_ok=True)
-            if self.write_errors:
-                Path(output_path, "errors").mkdir(parents=True, exist_ok=True)
             Path(output_path, "prob").mkdir(parents=True, exist_ok=True)
 
             slide_groups = self._select_slide_groups(predictions)
@@ -237,23 +233,6 @@ class TiffPredictionMapWriter(Callback):
             stride=stride,
             output_dir=Path(output_path, "prob"),
             filename=filename,
-            mpp=mpp,
-        )
-
-        if not self.write_errors:
-            return
-
-        errors = (
-            predictions["pred"].to_numpy() != predictions["target"].to_numpy()
-        ).astype(np.float32)
-        _write_error_map(
-            errors=errors,
-            xs=xs,
-            ys=ys,
-            extent=extent,
-            tile_extent=tile_extent,
-            stride=stride,
-            path=Path(output_path, "errors", filename),
             mpp=mpp,
         )
 
@@ -379,53 +358,6 @@ def _write_class_map(
         assembler.labels(),
         assembler.cdx,
         assembler.cdy,
-        extent,
-        0,
-        path,
-        mpp,
-    )
-
-
-def _write_error_map(
-    errors: np.ndarray,
-    xs: np.ndarray,
-    ys: np.ndarray,
-    extent: tuple[int, int],
-    tile_extent: tuple[int, int],
-    stride: tuple[int, int],
-    path: Path,
-    mpp: tuple[float, float],
-) -> None:
-    """Per-tile error (pred != target) averaged over the full tile footprint.
-
-    Averaging a 0/1 error fraction across overlapping tiles is meaningful
-    (fraction of covering tiles that were wrong); thresholded back to a 2-class
-    map encoded in the same spread space as the GT (correct -> low value,
-    wrong -> 255), background -> 0.
-    """
-    from rationai.masks.heatmap_assembler import HeatmapAssembler
-
-    assembler = HeatmapAssembler(
-        extent[0],
-        extent[1],
-        tile_extent[0],
-        tile_extent[1],
-        stride[0],
-        stride[1],
-        dtype=torch.float32,
-    )
-    assembler.update(
-        torch.from_numpy(errors),
-        torch.from_numpy(xs),
-        torch.from_numpy(ys),
-    )
-    wrong = (assembler.compute() >= 0.5).numpy().astype(np.intp)
-    grid = _spread_lut(2)[wrong]  # correct -> 128, wrong -> 255
-    grid[assembler._count.numpy() == 0] = 0
-    _emit_mask(
-        np.ascontiguousarray(grid),
-        assembler.common_divisor_x,
-        assembler.common_divisor_y,
         extent,
         0,
         path,
