@@ -98,7 +98,15 @@ class TiffPredictionMapWriter(Callback):
     ) -> None:
         self._write_maps(trainer)
 
+    def on_test_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        self._write_maps(trainer)
+
     def on_predict_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        self._write_maps(trainer)
+
+    def on_predict_end(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
         self._write_maps(trainer)
