@@ -2,7 +2,7 @@
 
 defaults:
   - /experiment/ml/linear_classifier_final_lbfgs_provgigapath
-  - override /ml/trainer: default
+  - override /ml/trainer: early_stopping
   - _self_
 
 # Held-out test for the final ProvGigaPath LBFGS checkpoint. Uses the same
@@ -11,16 +11,5 @@ defaults:
 mode: test
 
 data:
-  batch_size: 1024
+  train_batch_size: 1024
   num_workers: 0
-
-trainer:
-  callbacks:
-    tiff_prediction_maps:
-      _target_: ml.callbacks.TiffPredictionMapWriter
-      slides_uri: runs:/${dataset.mlflow_artifacts.tiling_run_id}/test_split/slides.parquet
-      artifact_path: prediction_maps_tiff
-      draw_region: central_stride
-      slide_selection: all
-      max_slides: null
-      write_errors: true
