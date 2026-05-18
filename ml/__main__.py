@@ -33,7 +33,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         model,
         datamodule=data,
         ckpt_path=_resolve_checkpoint(config.checkpoint),
-        weights_only=False,
     )
     mlflow.end_run()
 

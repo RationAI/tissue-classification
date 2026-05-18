@@ -3,8 +3,8 @@
 defaults:
   - /data: dataset
   - /class_mapping: collapse_alterations_to_other
-  - /ml/trainer: default
-  - /ml/data: embedding
+  - /ml/trainer: early_stopping
+  - /ml/data: kfold_embedding_tiles
   - /ml/model: linear_classifier
   - _self_
 

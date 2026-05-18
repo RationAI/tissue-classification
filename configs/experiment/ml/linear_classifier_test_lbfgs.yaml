@@ -2,7 +2,7 @@
 
 defaults:
   - /experiment/ml/linear_classifier_final_lbfgs
-  - override /ml/trainer: default
+  - override /ml/trainer: early_stopping
   - _self_
 
 # Test the LBFGS final checkpoint on the held-out test split. The full-batch
@@ -17,6 +17,8 @@ defaults:
 # which deadlocks before the first test batch.
 # Same model architecture as the final run (required for state_dict load).
 mode: test
+final_train_run_id: 0e2230c722134ce0985e09a18ccadf75
+checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
 
 data:
   batch_size: 1024

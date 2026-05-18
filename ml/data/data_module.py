@@ -42,7 +42,11 @@ class DataModule(LightningDataModule):
                     else None
                 )
             case "validate":
-                self.val = instantiate(self.datasets["val"])
+                self.val = (
+                    instantiate(self.datasets["val"])
+                    if self.datasets.get("val") is not None
+                    else None
+                )
             case "test":
                 self.test = instantiate(self.datasets["test"])
             case "predict":

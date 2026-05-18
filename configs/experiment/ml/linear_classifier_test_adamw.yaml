@@ -6,15 +6,17 @@ defaults:
 
 # Test the AdamW final checkpoint on the held-out test split. Same model
 # architecture as the final run (required for state_dict load); optimizer
-# fields are inert at test. Checkpoint is passed on the CLI.
+# fields are inert at test.
 #
 mode: test
+final_train_run_id: a23e478b00b04da79cfbf4d91cada8cd
+checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
 
 # num_workers MUST stay 0. EmbeddingTilesDataset loads the entire split into
 # one in-memory numpy array in __init__ and __getitem__ is pure numpy indexing
 # (no per-item IO), so workers give zero speedup; num_workers>0 forks the
 # parent (pyarrow/mlflow/fsspec thread state + large array) and deadlocks
-# before the first test batch. embedding_final defaults to 4; override here.
+# before the first test batch. final_embedding_tiles defaults to 4; override here.
 data:
   num_workers: 0
 

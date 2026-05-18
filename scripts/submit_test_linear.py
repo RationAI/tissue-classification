@@ -1,9 +1,6 @@
 from kube_jobs import storage, submit_job
 
 
-checkpoint = "mlflow-artifacts:/104/<run_id>/artifacts/checkpoints/last/checkpoint.ckpt"
-
-
 submit_job(
     job_name="tissue-classification-test-linear-final",
     username=...,
@@ -12,10 +9,10 @@ submit_job(
     gpu=None,
     public=False,
     script=[
-        "git https://github.com/RationAI/tissue-classification.git workdir",
+        "git clone https://github.com/RationAI/tissue-classification.git workdir",
         "cd workdir",
         "uv sync",
-        f'uv run python -m ml +experiment=... mode=test checkpoint=\\"{checkpoint}\\"',
+        "uv run python -m ml +experiment=...",
     ],
     storage=[storage.secure.PROJECTS],
 )

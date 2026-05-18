@@ -29,7 +29,6 @@ class TiffPredictionMapWriter(Callback):
         artifact_path: str = "prediction_maps_tiff",
         background_value: int = 255,
         draw_region: str = "central_stride",
-        write_errors: bool = True,
         max_slides: int | None = None,
         slide_selection: str = "all",
     ) -> None:
@@ -51,7 +50,6 @@ class TiffPredictionMapWriter(Callback):
         self.artifact_path = artifact_path
         self.background_value = background_value
         self.draw_region = draw_region
-        self.write_errors = write_errors
         self.max_slides = max_slides
         self.slide_selection = slide_selection
         self._batches: list[dict[str, Any]] = []
@@ -74,9 +72,9 @@ class TiffPredictionMapWriter(Callback):
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
-        if trainer.global_rank == 0 and isinstance(outputs, Mapping):
+        if isinstance(outputs, Mapping):
             self._batches.append(_to_cpu_batch(outputs))
-            if batch_idx % 50 == 0:
+            if trainer.global_rank == 0 and batch_idx % 50 == 0:
                 print(
                     f"[TiffPredictionMapWriter] test batch {batch_idx} "
                     f"({len(self._batches)} buffered)",
@@ -92,7 +90,7 @@ class TiffPredictionMapWriter(Callback):
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
-        if trainer.global_rank == 0 and outputs is not None:
+        if outputs is not None:
             self._batches.append(_to_cpu_batch(outputs))
 
     def on_test_epoch_end(
@@ -106,12 +104,14 @@ class TiffPredictionMapWriter(Callback):
         self._write_maps(trainer)
 
     def _write_maps(self, trainer: pl.Trainer) -> None:
-        if trainer.global_rank != 0 or not self._batches:
-            self._batches.clear()
+        batches = _gather_batches(self._batches)
+        self._batches.clear()
+        if trainer.global_rank != 0:
+            return
+        if not batches:
             return
 
-        predictions = _batches_to_dataframe(self._batches)
-        self._batches.clear()
+        predictions = _batches_to_dataframe(batches)
         if predictions.empty:
             return
 
@@ -124,14 +124,13 @@ class TiffPredictionMapWriter(Callback):
         with TemporaryDirectory(dir=Path(trainer.default_root_dir)) as output_dir:
             output_path = Path(output_dir)
             Path(output_path, "pred").mkdir(parents=True, exist_ok=True)
-            if self.write_errors:
-                Path(output_path, "errors").mkdir(parents=True, exist_ok=True)
             Path(output_path, "prob").mkdir(parents=True, exist_ok=True)
 
             slide_groups = self._select_slide_groups(predictions)
             print(
                 f"[TiffPredictionMapWriter] writing {len(slide_groups)} "
-                f"prediction map(s)"
+                f"prediction map(s)",
+                flush=True,
             )
             for index, (slide_id, slide_predictions) in enumerate(
                 slide_groups, start=1
@@ -144,7 +143,8 @@ class TiffPredictionMapWriter(Callback):
                     )
                 print(
                     f"[TiffPredictionMapWriter] {index}/{len(slide_groups)} "
-                    f"{Path(str(slide['path'])).name}"
+                    f"{Path(str(slide['path'])).name}",
+                    flush=True,
                 )
                 self._write_slide_maps(
                     slide,
@@ -157,7 +157,8 @@ class TiffPredictionMapWriter(Callback):
             if active is not None:
                 print(
                     f"[TiffPredictionMapWriter] logging artifacts to "
-                    f"{self.artifact_path}"
+                    f"{self.artifact_path}",
+                    flush=True,
                 )
                 mlflow.log_artifacts(output_dir, artifact_path=self.artifact_path)
 
@@ -211,6 +212,11 @@ class TiffPredictionMapWriter(Callback):
             [np.asarray(prob, dtype=np.float32) for prob in predictions["probs"]]
         )
 
+        pred_path = Path(output_path, "pred", filename)
+        print(
+            f"[TiffPredictionMapWriter] writing pred/{filename}",
+            flush=True,
+        )
         _write_class_map(
             probs=probs,
             xs=xs,
@@ -218,8 +224,13 @@ class TiffPredictionMapWriter(Callback):
             extent=extent,
             tile_extent=tile_extent,
             stride=stride,
-            path=Path(output_path, "pred", filename),
+            path=pred_path,
             mpp=mpp,
+            background_value=self.background_value,
+        )
+        print(
+            f"[TiffPredictionMapWriter] wrote pred/{filename}",
+            flush=True,
         )
 
         names = (
@@ -237,23 +248,6 @@ class TiffPredictionMapWriter(Callback):
             stride=stride,
             output_dir=Path(output_path, "prob"),
             filename=filename,
-            mpp=mpp,
-        )
-
-        if not self.write_errors:
-            return
-
-        errors = (
-            predictions["pred"].to_numpy() != predictions["target"].to_numpy()
-        ).astype(np.float32)
-        _write_error_map(
-            errors=errors,
-            xs=xs,
-            ys=ys,
-            extent=extent,
-            tile_extent=tile_extent,
-            stride=stride,
-            path=Path(output_path, "errors", filename),
             mpp=mpp,
         )
 
@@ -305,18 +299,19 @@ class _ClassVoteAssembler:
             self._acc[:, y0:y1, x0:x1] += prob[:, None, None]
             self._count[y0:y1, x0:x1] += 1
 
-    def labels(self) -> np.ndarray:
+    def labels(self, background_value: int = 0) -> np.ndarray:
         """Encode prediction labels like ``remap_annotation_masks``.
 
         Class ``i`` (0-based) maps to
-        ``round(255 * (i + 1) / n_classes)``. Never-covered pixels map to ``0``.
+        ``round(255 * (i + 1) / n_classes)``. Never-covered pixels map to
+        ``background_value``.
 
         The reporting tool expects GT and prediction masks in the same
         evenly-spread value space, so this must mirror that LUT exactly.
         """
         idx = self._acc.argmax(0).numpy()
         out = _spread_lut(self._n_classes)[idx].astype(np.uint8)
-        out[self._count.numpy() == 0] = 0
+        out[self._count.numpy() == 0] = _uint8_scalar(background_value)
         return np.ascontiguousarray(out)
 
 
@@ -360,6 +355,7 @@ def _write_class_map(
     stride: tuple[int, int],
     path: Path,
     mpp: tuple[float, float],
+    background_value: int = 0,
 ) -> None:
     assembler = _ClassVoteAssembler(
         extent[0],
@@ -376,58 +372,11 @@ def _write_class_map(
         torch.from_numpy(ys),
     )
     _emit_mask(
-        assembler.labels(),
+        assembler.labels(background_value),
         assembler.cdx,
         assembler.cdy,
         extent,
-        0,
-        path,
-        mpp,
-    )
-
-
-def _write_error_map(
-    errors: np.ndarray,
-    xs: np.ndarray,
-    ys: np.ndarray,
-    extent: tuple[int, int],
-    tile_extent: tuple[int, int],
-    stride: tuple[int, int],
-    path: Path,
-    mpp: tuple[float, float],
-) -> None:
-    """Per-tile error (pred != target) averaged over the full tile footprint.
-
-    Averaging a 0/1 error fraction across overlapping tiles is meaningful
-    (fraction of covering tiles that were wrong); thresholded back to a 2-class
-    map encoded in the same spread space as the GT (correct -> low value,
-    wrong -> 255), background -> 0.
-    """
-    from rationai.masks.heatmap_assembler import HeatmapAssembler
-
-    assembler = HeatmapAssembler(
-        extent[0],
-        extent[1],
-        tile_extent[0],
-        tile_extent[1],
-        stride[0],
-        stride[1],
-        dtype=torch.float32,
-    )
-    assembler.update(
-        torch.from_numpy(errors),
-        torch.from_numpy(xs),
-        torch.from_numpy(ys),
-    )
-    wrong = (assembler.compute() >= 0.5).numpy().astype(np.intp)
-    grid = _spread_lut(2)[wrong]  # correct -> 128, wrong -> 255
-    grid[assembler._count.numpy() == 0] = 0
-    _emit_mask(
-        np.ascontiguousarray(grid),
-        assembler.common_divisor_x,
-        assembler.common_divisor_y,
-        extent,
-        0,
+        int(_uint8_scalar(background_value)),
         path,
         mpp,
     )
@@ -457,6 +406,11 @@ def _write_per_class_probability_maps(
     xs_t = torch.from_numpy(xs)
     ys_t = torch.from_numpy(ys)
     for class_idx, class_name in enumerate(class_names):
+        class_dir = _safe_filename(class_name)
+        print(
+            f"[TiffPredictionMapWriter] writing prob/{class_dir}/{filename}",
+            flush=True,
+        )
         assembler = HeatmapAssembler(
             extent[0],
             extent[1],
@@ -479,9 +433,24 @@ def _write_per_class_probability_maps(
             assembler.common_divisor_y,
             extent,
             0,
-            output_dir / _safe_filename(class_name) / filename,
+            output_dir / class_dir / filename,
             mpp,
         )
+        print(
+            f"[TiffPredictionMapWriter] wrote prob/{class_dir}/{filename}",
+            flush=True,
+        )
+
+
+def _gather_batches(batches: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        return batches
+
+    gathered: list[list[dict[str, Any]]] = [
+        [] for _ in range(torch.distributed.get_world_size())
+    ]
+    torch.distributed.all_gather_object(gathered, batches)
+    return [batch for rank_batches in gathered for batch in rank_batches]
 
 
 def _to_cpu_batch(batch: Mapping[str, Any]) -> dict[str, Any]:
@@ -526,9 +495,13 @@ def _spread_lut(n_classes: int) -> np.ndarray:
     Mirrors ``preprocessing/remap_annotation_masks.py`` exactly so prediction
     masks share the GT value space the reporting tool expects:
     class ``i`` -> ``round(255 * (i + 1) / n_classes)``. Index 0 of the
-    returned array is unused by callers (background is set separately to 0).
+    returned array is unused by callers (background is set separately).
     """
     return np.array(
         [round(255 * (i + 1) / n_classes) for i in range(n_classes)],
         dtype=np.uint8,
     )
+
+
+def _uint8_scalar(value: int) -> int:
+    return np.asarray(value).clip(0, np.iinfo(np.uint8).max).astype(np.uint8).item()

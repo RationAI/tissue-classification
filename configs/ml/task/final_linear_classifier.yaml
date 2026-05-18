@@ -3,8 +3,8 @@
 defaults:
   - /data: dataset
   - /class_mapping: collapse_alterations_to_other
-  - /ml/trainer: final
-  - /ml/data: embedding_final
+  - /ml/trainer: final_with_prediction_maps
+  - /ml/data: final_embedding_tiles
   - /ml/model: linear_classifier
   - _self_
 
