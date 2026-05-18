@@ -56,7 +56,10 @@ class MetaArch(LightningModule):
             n for n, _ in sorted(class_indices.items(), key=lambda kv: kv[1])
         ]
         num_classes = len(self.class_names)
-        self.criterion = nn.CrossEntropyLoss()
+        # Placeholder weight so `criterion.weight` always exists in state_dict.
+        # setup(stage="fit") overrides with class-balanced weights; checkpoints
+        # then load with strict=True regardless of stage.
+        self.criterion = nn.CrossEntropyLoss(weight=torch.ones(num_classes))
 
         macro_metrics = MetricCollection(
             {
