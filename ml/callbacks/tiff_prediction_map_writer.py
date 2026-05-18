@@ -53,15 +53,18 @@ class TiffPredictionMapWriter(Callback):
         self.max_slides = max_slides
         self.slide_selection = slide_selection
         self._batches: list[dict[str, Any]] = []
+        self._written = False
 
     def on_test_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         self._batches.clear()
+        self._written = False
         print("[TiffPredictionMapWriter] test loop started", flush=True)
 
     def on_predict_start(
         self, trainer: pl.Trainer, pl_module: pl.LightningModule
     ) -> None:
         self._batches.clear()
+        self._written = False
 
     def on_test_batch_end(
         self,
@@ -112,15 +115,28 @@ class TiffPredictionMapWriter(Callback):
         self._write_maps(trainer)
 
     def _write_maps(self, trainer: pl.Trainer) -> None:
+        if self._written:
+            return
         batches = _gather_batches(self._batches)
-        self._batches.clear()
         if trainer.global_rank != 0:
+            self._batches.clear()
             return
         if not batches:
+            print(
+                "[TiffPredictionMapWriter] no buffered batches at write time "
+                f"(local buffer={len(self._batches)}, "
+                f"dist_init={torch.distributed.is_available() and torch.distributed.is_initialized()}); "
+                "skipping",
+                flush=True,
+            )
             return
 
         predictions = _batches_to_dataframe(batches)
         if predictions.empty:
+            print(
+                "[TiffPredictionMapWriter] predictions dataframe empty; skipping",
+                flush=True,
+            )
             return
 
         slides = pd.read_parquet(_resolve_uri(self.slides_uri))
@@ -169,6 +185,9 @@ class TiffPredictionMapWriter(Callback):
                     flush=True,
                 )
                 mlflow.log_artifacts(output_dir, artifact_path=self.artifact_path)
+
+        self._written = True
+        self._batches.clear()
 
     def _select_slide_groups(
         self, predictions: pd.DataFrame
