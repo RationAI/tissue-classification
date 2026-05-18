@@ -486,7 +486,7 @@ def _resolve_uri(uri: str) -> str:
 
 
 def _safe_filename(value: str) -> str:
-    return sub(r"[^A-Za-z0-9_.-]+", "_", value)
+    return sub(r"[^A-Za-z0-9 _.-]+", "_", value)
 
 
 def _spread_lut(n_classes: int) -> np.ndarray:
