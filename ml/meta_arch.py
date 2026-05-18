@@ -104,8 +104,8 @@ class MetaArch(LightningModule):
             )
             for cls, w in zip(self.class_names, weights.tolist(), strict=True):
                 mlflow.log_metric(f"class_weight/{cls}", w)
-        else:
-            self.criterion = nn.CrossEntropyLoss()
+        # Non-fit stages keep the placeholder ones-weight criterion from
+        # __init__ so `criterion.weight` stays in state_dict for strict load.
 
     def forward(self, x: Tensor) -> Outputs:
         features = self.backbone(x)
