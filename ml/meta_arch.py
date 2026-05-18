@@ -367,7 +367,7 @@ class MetaArch(LightningModule):
         ]
         mlflow.log_table(
             data=pd.DataFrame(rows),
-            artifact_file="per_slide/test_tile_accuracy.parquet",
+            artifact_file="per_slide/test_tile_accuracy.json",
         )
 
 
