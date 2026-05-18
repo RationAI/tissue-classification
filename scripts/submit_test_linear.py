@@ -3,7 +3,7 @@ from kube_jobs import storage, submit_job
 
 submit_job(
     job_name="tissue-classification-test-linear-final",
-    username="vcifka",
+    username=...,
     cpu=8,
     memory="64Gi",
     gpu=None,
