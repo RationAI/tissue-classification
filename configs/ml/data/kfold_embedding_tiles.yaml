@@ -1,7 +1,7 @@
 # @package _global_
 
 data:
-  batch_size: 1024
+  train_batch_size: 1024
   num_workers: 4
   train_shuffle: true
   train_drop_last: true

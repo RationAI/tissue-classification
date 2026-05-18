@@ -48,5 +48,5 @@ metadata:
     thresholds: ${thresholds}
     learning_rate: ${model.learning_rate}
     weight_decay: ${model.weight_decay}
-    batch_size: ${data.batch_size}
+    batch_size: ${data.train_batch_size}
     max_epochs: ${trainer.max_epochs}

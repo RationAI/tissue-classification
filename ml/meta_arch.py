@@ -56,7 +56,7 @@ class MetaArch(LightningModule):
             n for n, _ in sorted(class_indices.items(), key=lambda kv: kv[1])
         ]
         num_classes = len(self.class_names)
-        self.criterion = nn.CrossEntropyLoss(weight=torch.ones(num_classes))
+        self.criterion = nn.CrossEntropyLoss()
 
         macro_metrics = MetricCollection(
             {
@@ -102,9 +102,7 @@ class MetaArch(LightningModule):
             for cls, w in zip(self.class_names, weights.tolist(), strict=True):
                 mlflow.log_metric(f"class_weight/{cls}", w)
         else:
-            self.criterion = nn.CrossEntropyLoss(
-                weight=torch.ones(len(self.class_names), dtype=torch.float32)
-            )
+            self.criterion = nn.CrossEntropyLoss()
 
     def forward(self, x: Tensor) -> Outputs:
         features = self.backbone(x)
@@ -274,9 +272,9 @@ class MetaArch(LightningModule):
 
     def _validate_lbfgs_full_batch(self, datamodule: Any, train_size: int) -> None:
         lbfgs = self.hparams.get("lbfgs") or {}
-        batch_size = int(datamodule.batch_size)
+        train_batch_size = int(datamodule.train_batch_size)
         accumulation_steps = int(lbfgs.get("accumulate_batches", 1))
-        effective_batch_size = batch_size * accumulation_steps
+        effective_batch_size = train_batch_size * accumulation_steps
 
         if datamodule.train_shuffle:
             raise ValueError("LBFGS requires data.train_shuffle=false.")
@@ -285,9 +283,9 @@ class MetaArch(LightningModule):
         if effective_batch_size < train_size:
             raise ValueError(
                 "LBFGS requires a deterministic full-batch objective. Set "
-                "data.batch_size >= len(train) or set "
+                "data.train_batch_size >= len(train) or set "
                 "model.lbfgs.accumulate_batches >= ceil(len(train) / "
-                "data.batch_size). Current effective batch size is "
+                "data.train_batch_size). Current effective batch size is "
                 f"{effective_batch_size} for {train_size} training samples."
             )
 

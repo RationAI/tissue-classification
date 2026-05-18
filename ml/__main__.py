@@ -29,11 +29,13 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     allowed_modes = ["fit", "test", "validate", "predict"]
     if config.mode not in allowed_modes:
         raise ValueError(f"Invalid mode {config.mode!r}. Allowed: {allowed_modes}")
-    getattr(trainer, config.mode)(
-        model,
-        datamodule=data,
-        ckpt_path=_resolve_checkpoint(config.checkpoint),
-    )
+    run_kwargs = {
+        "datamodule": data,
+        "ckpt_path": _resolve_checkpoint(config.checkpoint),
+    }
+    if config.checkpoint_weights_only is not None:
+        run_kwargs["weights_only"] = config.checkpoint_weights_only
+    getattr(trainer, config.mode)(model, **run_kwargs)
     mlflow.end_run()
 
 

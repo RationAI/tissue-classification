@@ -21,7 +21,41 @@ from torch.utils.data import Dataset
 from ml.typing import Sample
 
 
-class EmbeddingTilesDataset(Dataset[Sample]):
+class _BaseEmbeddingTilesDataset(Dataset[Sample]):
+    def __init__(
+        self,
+        embedding_uri: str | Path,
+        meta_df: pd.DataFrame,
+        diag: Callable[[str], None],
+    ) -> None:
+        diag(f"metadata filtered: {len(meta_df)} rows; reading embeddings")
+        joined_keys, embeddings = _load_embeddings_and_join(
+            embedding_uri, meta_df, diag
+        )
+        self.embeddings = embeddings
+        self.labels = self._labels_from_joined_keys(joined_keys)
+        self.slide_ids = joined_keys.column("slide_id").to_pandas().to_numpy()
+        self.xs = joined_keys.column("x").to_pandas().to_numpy(dtype=np.int64)
+        self.ys = joined_keys.column("y").to_pandas().to_numpy(dtype=np.int64)
+        diag(f"dataset ready: {len(self.labels)} samples, dim={embeddings.shape[1]}")
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __getitem__(self, idx: int) -> Sample:
+        return (
+            torch.from_numpy(self.embeddings[idx]),
+            int(self.labels[idx]),
+            str(self.slide_ids[idx]),
+            int(self.xs[idx]),
+            int(self.ys[idx]),
+        )
+
+    def _labels_from_joined_keys(self, joined_keys: pa.Table) -> np.ndarray:
+        raise NotImplementedError
+
+
+class EmbeddingTilesDataset(_BaseEmbeddingTilesDataset):
     """Tile-level embedding dataset with on-the-fly filtering and labeling.
 
     Inner-joins ``embedding`` parquet with ``metadata`` parquet on
@@ -45,15 +79,9 @@ class EmbeddingTilesDataset(Dataset[Sample]):
         include_folds: list[int] | None = None,
         exclude_folds: list[int] | None = None,
     ) -> None:
-        t0 = perf_counter()
-
-        def _diag(msg: str) -> None:
-            print(
-                f"[EmbeddingTilesDataset +{perf_counter() - t0:6.1f}s] {msg}",
-                flush=True,
-            )
-
-        _diag("filtering metadata")
+        self.class_indices = class_indices
+        diag = _make_diag(type(self).__name__)
+        diag("filtering metadata")
         meta_df = self._filter_metadata(
             metadata_uri,
             thresholds,
@@ -61,35 +89,16 @@ class EmbeddingTilesDataset(Dataset[Sample]):
             include_folds,
             exclude_folds,
         )
-        _diag(f"metadata filtered: {len(meta_df)} rows; reading embeddings")
+        super().__init__(embedding_uri, meta_df, diag)
 
-        joined_keys, embeddings = _load_embeddings_and_join(
-            embedding_uri, meta_df, _diag
-        )
-        self.embeddings = embeddings
+    def _labels_from_joined_keys(self, joined_keys: pa.Table) -> np.ndarray:
         labels = joined_keys.column("label").to_pandas()
-        unknown = set(labels.unique()) - set(class_indices.keys())
+        unknown = set(labels.unique()) - set(self.class_indices.keys())
         if unknown:
             raise ValueError(
                 f"labels in data not present in class_indices: {sorted(unknown)}"
             )
-        self.labels = labels.map(class_indices).to_numpy(dtype=np.int64)
-        self.slide_ids = joined_keys.column("slide_id").to_pandas().to_numpy()
-        self.xs = joined_keys.column("x").to_pandas().to_numpy(dtype=np.int64)
-        self.ys = joined_keys.column("y").to_pandas().to_numpy(dtype=np.int64)
-        _diag(f"dataset ready: {len(self.labels)} samples, dim={embeddings.shape[1]}")
-
-    def __len__(self) -> int:
-        return len(self.labels)
-
-    def __getitem__(self, idx: int) -> Sample:
-        return (
-            torch.from_numpy(self.embeddings[idx]),
-            int(self.labels[idx]),
-            str(self.slide_ids[idx]),
-            int(self.xs[idx]),
-            int(self.ys[idx]),
-        )
+        return labels.map(self.class_indices).to_numpy(dtype=np.int64)
 
     @staticmethod
     def _filter_metadata(
@@ -99,7 +108,7 @@ class EmbeddingTilesDataset(Dataset[Sample]):
         include_folds: list[int] | None,
         exclude_folds: list[int] | None,
     ) -> pd.DataFrame:
-        local = EmbeddingTilesDataset._resolve_uri(metadata_uri)
+        local = _resolve_uri(metadata_uri)
         df = pd.read_parquet(local)
 
         roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
@@ -150,24 +159,13 @@ class EmbeddingTilesDataset(Dataset[Sample]):
 
         return df[["slide_id", "x", "y", "label"]]
 
-    @staticmethod
-    def _resolve_uri(path_or_uri: str | Path) -> str:
-        return EmbeddingTilesDataset._resolve_uri_cached(str(path_or_uri))
-
-    @staticmethod
-    @cache
-    def _resolve_uri_cached(uri: str) -> str:
-        if uri.startswith(("mlflow-artifacts:/", "runs:/")):
-            return download_artifacts(artifact_uri=uri)
-        return uri
-
 
 def _load_embeddings_and_join(
     embedding_uri: str | Path,
     meta_df: pd.DataFrame,
     diag: Callable[[str], None],
 ) -> tuple[pa.Table, np.ndarray]:
-    emb_dir = EmbeddingTilesDataset._resolve_uri(embedding_uri)
+    emb_dir = _resolve_uri(embedding_uri)
     emb_table = pads.dataset(emb_dir, format="parquet").to_table(
         columns=["slide_id", "x", "y", "embedding"]
     )
@@ -225,7 +223,7 @@ def _load_embeddings_and_join(
     return joined_keys, embeddings
 
 
-class UnlabeledEmbeddingTilesDataset(Dataset[Sample]):
+class UnlabeledEmbeddingTilesDataset(_BaseEmbeddingTilesDataset):
     """Tile-embedding dataset for prediction over tiles without class labels."""
 
     def __init__(
@@ -236,39 +234,14 @@ class UnlabeledEmbeddingTilesDataset(Dataset[Sample]):
         tissue_min: float = 0.0,
         label_value: int = -1,
     ) -> None:
-        t0 = perf_counter()
-
-        def _diag(msg: str) -> None:
-            print(
-                f"[UnlabeledEmbeddingTilesDataset +{perf_counter() - t0:6.1f}s] {msg}",
-                flush=True,
-            )
-
-        _diag("filtering metadata")
+        self.label_value = label_value
+        diag = _make_diag(type(self).__name__)
+        diag("filtering metadata")
         meta_df = self._filter_metadata(metadata_uri, tissue_column, tissue_min)
-        _diag(f"metadata filtered: {len(meta_df)} rows; reading embeddings")
+        super().__init__(embedding_uri, meta_df, diag)
 
-        joined_keys, embeddings = _load_embeddings_and_join(
-            embedding_uri, meta_df, _diag
-        )
-        self.embeddings = embeddings
-        self.labels = np.full(len(joined_keys), label_value, dtype=np.int64)
-        self.slide_ids = joined_keys.column("slide_id").to_pandas().to_numpy()
-        self.xs = joined_keys.column("x").to_pandas().to_numpy(dtype=np.int64)
-        self.ys = joined_keys.column("y").to_pandas().to_numpy(dtype=np.int64)
-        _diag(f"dataset ready: {len(self.labels)} samples, dim={embeddings.shape[1]}")
-
-    def __len__(self) -> int:
-        return len(self.labels)
-
-    def __getitem__(self, idx: int) -> Sample:
-        return (
-            torch.from_numpy(self.embeddings[idx]),
-            int(self.labels[idx]),
-            str(self.slide_ids[idx]),
-            int(self.xs[idx]),
-            int(self.ys[idx]),
-        )
+    def _labels_from_joined_keys(self, joined_keys: pa.Table) -> np.ndarray:
+        return np.full(joined_keys.num_rows, self.label_value, dtype=np.int64)
 
     @staticmethod
     def _filter_metadata(
@@ -276,7 +249,7 @@ class UnlabeledEmbeddingTilesDataset(Dataset[Sample]):
         tissue_column: str,
         tissue_min: float,
     ) -> pd.DataFrame:
-        local = EmbeddingTilesDataset._resolve_uri(metadata_uri)
+        local = _resolve_uri(metadata_uri)
         columns = ["slide_id", "x", "y", tissue_column]
         df = pd.read_parquet(local, columns=columns)
         if tissue_column not in df.columns:
@@ -289,3 +262,23 @@ class UnlabeledEmbeddingTilesDataset(Dataset[Sample]):
                 f"all tiles dropped by {tissue_column} > {tissue_min} filter"
             )
         return df
+
+
+def _resolve_uri(path_or_uri: str | Path) -> str:
+    return _resolve_uri_cached(str(path_or_uri))
+
+
+def _make_diag(dataset_name: str) -> Callable[[str], None]:
+    t0 = perf_counter()
+
+    def _diag(msg: str) -> None:
+        print(f"[{dataset_name} +{perf_counter() - t0:6.1f}s] {msg}", flush=True)
+
+    return _diag
+
+
+@cache
+def _resolve_uri_cached(uri: str) -> str:
+    if uri.startswith(("mlflow-artifacts:/", "runs:/")):
+        return download_artifacts(artifact_uri=uri)
+    return uri

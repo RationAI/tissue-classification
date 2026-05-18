@@ -6,9 +6,9 @@ defaults:
   - _self_
 
 # Test the LBFGS final checkpoint on the held-out test split. The full-batch
-# batch_size=1e9 is a TRAINING requirement for the convex LBFGS solve only; at
-# test there is no optimization, so revert to a normal batch to avoid loading
-# the whole test set as one tensor (OOM).
+# train_batch_size=1e9 is a TRAINING requirement for the convex LBFGS solve
+# only; at test there is no optimization, so use a normal batch to avoid
+# loading the whole test set as one tensor (OOM).
 #
 # num_workers MUST stay 0. EmbeddingTilesDataset loads the entire split into
 # one in-memory numpy array in __init__ and __getitem__ is pure numpy indexing
@@ -19,9 +19,10 @@ defaults:
 mode: test
 final_train_run_id: 0e2230c722134ce0985e09a18ccadf75
 checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
+checkpoint_weights_only: false
 
 data:
-  batch_size: 1024
+  train_batch_size: 1024
   num_workers: 0
 
 trainer:

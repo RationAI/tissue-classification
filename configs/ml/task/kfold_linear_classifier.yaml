@@ -53,6 +53,6 @@ metadata:
     learning_rate: ${model.learning_rate}
     weight_decay: ${model.weight_decay}
     lbfgs: ${model.lbfgs}
-    batch_size: ${data.batch_size}
+    batch_size: ${data.train_batch_size}
     train_shuffle: ${data.train_shuffle}
     train_drop_last: ${data.train_drop_last}
