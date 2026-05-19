@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/preprocessing/embeddings_virchow2_05mpp
+  - /experiment/preprocessing/embeddings_virchow2_0_5mpp
   - _self_
 
 # Embeddings for every tile in the train/test tiling split that intersects the
