@@ -357,18 +357,27 @@ class MetaArch(LightningModule):
         self.log("test/slide_acc_median", float(np.median(accs)), on_epoch=True)
         self.log("test/slide_acc_min", float(np.min(accs)), on_epoch=True)
 
-        rows = [
-            {
-                "slide_id": s,
-                "tile_accuracy": self._test_slide_correct[s] / n,
-                "n_tiles": n,
-            }
-            for s, n in self._test_slide_total.items()
-        ]
+        slide_names = self._test_slide_names_by_id()
+        rows = []
+        for s, n in self._test_slide_total.items():
+            row: dict[str, Any] = {"slide_id": s}
+            if slide_names:
+                row["slide_name"] = slide_names.get(s)
+            row["tile_accuracy"] = self._test_slide_correct[s] / n
+            row["n_tiles"] = n
+            rows.append(row)
         mlflow.log_table(
             data=pd.DataFrame(rows),
             artifact_file="per_slide/test_tile_accuracy.json",
         )
+
+    def _test_slide_names_by_id(self) -> dict[str, str]:
+        datamodule = getattr(self.trainer, "datamodule", None)
+        dataset = getattr(datamodule, "test", None)
+        slide_names = getattr(dataset, "slide_names_by_id", {})
+        if isinstance(slide_names, dict):
+            return slide_names
+        return {}
 
 
 def _confmat_figure(

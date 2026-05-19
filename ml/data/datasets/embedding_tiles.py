@@ -27,6 +27,7 @@ class _BaseEmbeddingTilesDataset(Dataset[Sample]):
         embedding_uri: str | Path,
         meta_df: pd.DataFrame,
         diag: Callable[[str], None],
+        slide_metadata_uri: str | Path | None = None,
     ) -> None:
         diag(f"metadata filtered: {len(meta_df)} rows; reading embeddings")
         joined_keys, embeddings = _load_embeddings_and_join(
@@ -37,6 +38,9 @@ class _BaseEmbeddingTilesDataset(Dataset[Sample]):
         self.slide_ids = joined_keys.column("slide_id").to_pandas().to_numpy()
         self.xs = joined_keys.column("x").to_pandas().to_numpy(dtype=np.int64)
         self.ys = joined_keys.column("y").to_pandas().to_numpy(dtype=np.int64)
+        self.slide_names_by_id = (
+            _load_slide_names(slide_metadata_uri) if slide_metadata_uri else {}
+        )
         diag(f"dataset ready: {len(self.labels)} samples, dim={embeddings.shape[1]}")
 
     def __len__(self) -> int:
@@ -78,6 +82,7 @@ class EmbeddingTilesDataset(_BaseEmbeddingTilesDataset):
         tissue_prop_min: float,
         include_folds: list[int] | None = None,
         exclude_folds: list[int] | None = None,
+        slide_metadata_uri: str | Path | None = None,
     ) -> None:
         self.class_indices = class_indices
         diag = _make_diag(type(self).__name__)
@@ -89,7 +94,7 @@ class EmbeddingTilesDataset(_BaseEmbeddingTilesDataset):
             include_folds,
             exclude_folds,
         )
-        super().__init__(embedding_uri, meta_df, diag)
+        super().__init__(embedding_uri, meta_df, diag, slide_metadata_uri)
 
     def _labels_from_joined_keys(self, joined_keys: pa.Table) -> np.ndarray:
         labels = joined_keys.column("label").to_pandas()
@@ -233,12 +238,13 @@ class UnlabeledEmbeddingTilesDataset(_BaseEmbeddingTilesDataset):
         tissue_column: str = "tile_tissue_coverage",
         tissue_min: float = 0.0,
         label_value: int = -1,
+        slide_metadata_uri: str | Path | None = None,
     ) -> None:
         self.label_value = label_value
         diag = _make_diag(type(self).__name__)
         diag("filtering metadata")
         meta_df = self._filter_metadata(metadata_uri, tissue_column, tissue_min)
-        super().__init__(embedding_uri, meta_df, diag)
+        super().__init__(embedding_uri, meta_df, diag, slide_metadata_uri)
 
     def _labels_from_joined_keys(self, joined_keys: pa.Table) -> np.ndarray:
         return np.full(joined_keys.num_rows, self.label_value, dtype=np.int64)
@@ -266,6 +272,15 @@ class UnlabeledEmbeddingTilesDataset(_BaseEmbeddingTilesDataset):
 
 def _resolve_uri(path_or_uri: str | Path) -> str:
     return _resolve_uri_cached(str(path_or_uri))
+
+
+def _load_slide_names(slide_metadata_uri: str | Path) -> dict[str, str]:
+    local = _resolve_uri(slide_metadata_uri)
+    df = pd.read_parquet(local, columns=["id", "path"])
+    return {
+        str(row.id): Path(str(row.path)).name
+        for row in df[["id", "path"]].itertuples(index=False)
+    }
 
 
 def _make_diag(dataset_name: str) -> Callable[[str], None]:
