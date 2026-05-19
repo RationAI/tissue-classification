@@ -11,6 +11,8 @@ splits:
 tile_source_run_id: ${dataset.mlflow_artifacts.filter_tiles_run_id}
 tile_source_artifact_template: "filter_tiles/{split}_tiles.parquet"
 tile_filter_column: null
+slide_sample_max_tiles: null
+slide_sample_seed: 0
 
 metadata:
   run_name: "Embeddings: ${model}"
@@ -23,3 +25,5 @@ metadata:
     tile_source_run_id: ${tile_source_run_id}
     tile_source_artifact_template: ${tile_source_artifact_template}
     tile_filter_column: ${tile_filter_column}
+    slide_sample_max_tiles: ${slide_sample_max_tiles}
+    slide_sample_seed: ${slide_sample_seed}

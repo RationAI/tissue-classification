@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - /experiment/ml/final_linear_provgigapath_adamw
+  - _self_
+
+# Held-out test for the final ProvGigaPath AdamW checkpoint. Uses the same
+# filtered labeled test split, thresholds, metrics, and checkpoint convention as
+# the Virchow2 test config.
+mode: test
+final_train_run_id: fe172ccd8c1140269f7f3d1fdbd351ea
+checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
+checkpoint_weights_only: false
+
+data:
+  num_workers: 0

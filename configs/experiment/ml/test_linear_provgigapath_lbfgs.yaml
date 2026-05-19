@@ -1,0 +1,18 @@
+# @package _global_
+
+defaults:
+  - /experiment/ml/final_linear_provgigapath_lbfgs
+  - override /ml/trainer: early_stopping
+  - _self_
+
+# Held-out test for the final ProvGigaPath LBFGS checkpoint. Uses the same
+# filtered labeled test split, thresholds, metrics, and checkpoint convention as
+# the Virchow2 test config.
+mode: test
+final_train_run_id: 067b08dcbdb54d9187fbd4dd8d5599a1
+checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
+checkpoint_weights_only: false
+
+data:
+  train_batch_size: 1024
+  num_workers: 0

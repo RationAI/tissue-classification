@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/ml/linear_classifier_stratified_kfold
+  - /experiment/ml/train_linear_provgigapath_adamw_group_kfold
   - _self_
 
 trainer:
@@ -11,6 +11,7 @@ data:
   train_batch_size: 1000000000
   train_shuffle: false
   train_drop_last: false
+  num_workers: 0
 
 model:
   optimizer: lbfgs

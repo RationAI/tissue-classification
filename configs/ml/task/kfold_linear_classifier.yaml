@@ -10,6 +10,8 @@ defaults:
 
 mode: fit
 
+embedding_model_name: Virchow2
+embedding_dim: 2560
 embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_id}
 kfold_strategy: stratified
 kfold_run_id: ${dataset.mlflow_artifacts.stratified_kfold_run_id}
@@ -36,8 +38,10 @@ mlflow_artifact_path: linear_classifier
 
 metadata:
   run_name: Linear Classifier ${dataset.name} ${kfold_strategy} fold=${val_fold} opt=${model.optimizer} wd=${model.weight_decay}
-  description: "Linear probe over frozen Virchow2 embeddings (run ${embedding_run_id}), ${kfold_strategy} kfold metadata ${kfold_run_id}."
+  description: "Linear probe over frozen ${embedding_model_name} embeddings (run ${embedding_run_id}), ${kfold_strategy} kfold metadata ${kfold_run_id}."
   hyperparams:
+    embedding_model_name: ${embedding_model_name}
+    embedding_dim: ${embedding_dim}
     embedding_run_id: ${embedding_run_id}
     kfold_strategy: ${kfold_strategy}
     kfold_run_id: ${kfold_run_id}

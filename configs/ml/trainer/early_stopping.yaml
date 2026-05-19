@@ -19,6 +19,7 @@ trainer:
       _target_: lightning.pytorch.callbacks.ModelCheckpoint
       monitor: train/loss_epoch
       mode: min
+      save_last: true
       save_top_k: 1
       filename: "epoch={epoch}-train_loss={train/loss_epoch:.4f}"
       auto_insert_metric_name: false

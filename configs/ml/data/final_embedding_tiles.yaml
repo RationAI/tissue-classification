@@ -21,3 +21,4 @@ data:
     class_indices: ${class_indices}
     thresholds: ${thresholds}
     tissue_prop_min: ${tissue_prop_min}
+    slide_metadata_uri: ${test_slide_metadata_uri}

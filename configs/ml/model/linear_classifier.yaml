@@ -6,7 +6,7 @@ model:
 
   decode_head:
     _target_: torch.nn.Linear
-    in_features: 2560
+    in_features: ${embedding_dim}
     out_features: ${len:${class_indices}}
 
   class_indices: ${class_indices}
