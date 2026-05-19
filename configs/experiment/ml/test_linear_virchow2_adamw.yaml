@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/ml/linear_classifier_final_adamw
+  - /experiment/ml/final_linear_virchow2_adamw
   - _self_
 
 # Test the AdamW final checkpoint on the held-out test split. Same model
@@ -20,14 +20,3 @@ checkpoint_weights_only: false
 # before the first test batch. final_embedding_tiles defaults to 4; override here.
 data:
   num_workers: 0
-
-trainer:
-  callbacks:
-    tiff_prediction_maps:
-      _target_: ml.callbacks.TiffPredictionMapWriter
-      slides_uri: runs:/${dataset.mlflow_artifacts.tiling_run_id}/test_split/slides.parquet
-      artifact_path: prediction_maps_tiff
-      draw_region: central_stride
-      slide_selection: all
-      max_slides: null
-      write_errors: true

@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/ml/linear_classifier_final_adamw
+  - /experiment/ml/final_linear_virchow2_adamw
   - _self_
 
 embedding_model_name: ProvGigaPath

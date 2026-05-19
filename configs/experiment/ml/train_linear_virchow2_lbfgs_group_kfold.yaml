@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - /experiment/ml/linear_classifier_stratified_group_kfold_provgigapath
+  - /experiment/ml/train_linear_virchow2_adamw_group_kfold
   - _self_
 
 trainer:
