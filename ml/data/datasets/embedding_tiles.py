@@ -277,10 +277,7 @@ def _resolve_uri(path_or_uri: str | Path) -> str:
 def _load_slide_names(slide_metadata_uri: str | Path) -> dict[str, str]:
     local = _resolve_uri(slide_metadata_uri)
     df = pd.read_parquet(local, columns=["id", "path"])
-    return {
-        str(row.id): Path(str(row.path)).name
-        for row in df.itertuples(index=False)
-    }
+    return {str(row.id): Path(str(row.path)).name for row in df.itertuples(index=False)}
 
 
 def _make_diag(dataset_name: str) -> Callable[[str], None]:
