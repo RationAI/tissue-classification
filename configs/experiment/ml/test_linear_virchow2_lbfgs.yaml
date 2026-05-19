@@ -34,4 +34,3 @@ trainer:
       draw_region: central_stride
       slide_selection: all
       max_slides: null
-      write_errors: true
