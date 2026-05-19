@@ -1,0 +1,30 @@
+# @package _global_
+
+trainer:
+  max_epochs: 500
+  accelerator: auto
+  devices: auto
+  precision: 32
+  log_every_n_steps: 50
+  deterministic: false
+
+  callbacks:
+    early_stopping:
+      _target_: lightning.pytorch.callbacks.EarlyStopping
+      monitor: train/loss_epoch
+      mode: min
+      patience: 1
+      min_delta: 1.0e-4
+    model_checkpoint:
+      _target_: lightning.pytorch.callbacks.ModelCheckpoint
+      monitor: train/loss_epoch
+      mode: min
+      save_top_k: 1
+      filename: "epoch={epoch}-train_loss={train/loss_epoch:.4f}"
+      auto_insert_metric_name: false
+    lr_monitor:
+      _target_: lightning.pytorch.callbacks.LearningRateMonitor
+      logging_interval: epoch
+    prediction_writer:
+      _target_: ml.callbacks.ParquetPredictionWriter
+      output_filename: predictions.parquet

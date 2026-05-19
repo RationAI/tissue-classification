@@ -1,0 +1,37 @@
+# @package _global_
+
+defaults:
+  - /ml/task: final_linear_classifier
+  - _self_
+
+# LBFGS final: exact solve of the convex objective on the full training batch.
+# weight_decay=1e-2 = best LBFGS sweep point. Full-batch guard requires
+# train_shuffle=false, train_drop_last=false, train_batch_size >= len(train);
+# num_workers=0 avoids the single-batch IPC deadlock.
+trainer:
+  max_epochs: 10
+
+data:
+  train_batch_size: 1000000000
+  eval_batch_size: 1024
+  train_shuffle: false
+  train_drop_last: false
+  num_workers: 0
+
+model:
+  optimizer: lbfgs
+  learning_rate: 1.0
+  weight_decay: 1.0e-2
+  lbfgs:
+    max_iter: 100
+    max_eval: null
+    tolerance_grad: 1.0e-7
+    tolerance_change: 1.0e-9
+    history_size: 100
+    line_search_fn: strong_wolfe
+    accumulate_batches: 1
+    accumulate_on_cpu: false
+
+metadata:
+  run_name: Final Linear Classifier LBFGS ${dataset.name}
+  description: "Final LBFGS linear probe over frozen Virchow2 embeddings, exact full-batch solve of the convex objective on all training folds."

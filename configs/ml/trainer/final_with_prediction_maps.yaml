@@ -1,0 +1,30 @@
+# @package _global_
+
+trainer:
+  max_epochs: 6
+  accelerator: auto
+  devices: auto
+  precision: 32
+  log_every_n_steps: 50
+  deterministic: false
+
+  callbacks:
+    model_checkpoint:
+      _target_: lightning.pytorch.callbacks.ModelCheckpoint
+      save_last: true
+      save_top_k: 0
+      filename: "final-epoch={epoch}"
+      auto_insert_metric_name: false
+    lr_monitor:
+      _target_: lightning.pytorch.callbacks.LearningRateMonitor
+      logging_interval: epoch
+    prediction_writer:
+      _target_: ml.callbacks.ParquetPredictionWriter
+      output_filename: predictions.parquet
+    tiff_prediction_maps:
+      _target_: ml.callbacks.TiffPredictionMapWriter
+      slides_uri: runs:/${dataset.mlflow_artifacts.tiling_run_id}/test_split/slides.parquet
+      artifact_path: prediction_maps_tiff
+      draw_region: central_stride
+      slide_selection: all
+      max_slides: null
