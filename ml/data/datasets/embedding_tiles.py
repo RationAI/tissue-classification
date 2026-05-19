@@ -279,7 +279,7 @@ def _load_slide_names(slide_metadata_uri: str | Path) -> dict[str, str]:
     df = pd.read_parquet(local, columns=["id", "path"])
     return {
         str(row.id): Path(str(row.path)).name
-        for row in df[["id", "path"]].itertuples(index=False)
+        for row in df.itertuples(index=False)
     }
 
 
