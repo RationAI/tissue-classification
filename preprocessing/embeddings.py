@@ -95,7 +95,7 @@ def select_slide_budget(
     selected_tiles = 0
     for row in shuffled.itertuples(index=False):
         tile_count = int(row.tile_count)
-        if selected and selected_tiles + tile_count > max_tiles:
+        if selected_tiles + tile_count > max_tiles:
             continue
         selected.append(str(row.slide_id))
         selected_tiles += tile_count

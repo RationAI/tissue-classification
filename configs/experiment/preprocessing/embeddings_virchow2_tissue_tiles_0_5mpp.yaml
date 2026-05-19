@@ -4,8 +4,9 @@ defaults:
   - /experiment/preprocessing/embeddings_virchow2_0_5mpp
   - _self_
 
-# Embeddings for every tile in the train/test tiling split that intersects the
-# tissue mask. This is the tile universe used for doctor-review prediction maps.
+# Embeddings for a deterministic sampled subset of test slides whose tiles
+# intersect the tissue mask. The sample is capped by slide_sample_max_tiles and
+# selected with slide_sample_seed for doctor-review prediction maps.
 splits:
   - test
 tile_source_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}
@@ -16,4 +17,4 @@ slide_sample_seed: 0
 
 metadata:
   run_name: "Embeddings: ${model} tissue tiles"
-  description: "Tile embeddings using ${model} over a sampled held-out test slide subset with tile_tissue_coverage > 0."
+  description: "Tile embeddings using ${model} over a sampled held-out test slide subset with tile_tissue_coverage > 0, capped by slide_sample_max_tiles=${slide_sample_max_tiles} and selected with slide_sample_seed=${slide_sample_seed}."
