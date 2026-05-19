@@ -1,0 +1,23 @@
+# @package _global_
+
+defaults:
+  - /ml/task: final_linear_classifier
+  - override /ml/trainer: early_stopping
+  - _self_
+
+# AdamW final: trained to convergence with the same early-stopping rule as the
+# k-fold sweep (monitor train/loss_epoch, patience 1, min_delta 1e-4), not a
+# fixed 6-epoch budget. weight_decay=1e-3 = best AdamW sweep point (flat curve).
+model:
+  optimizer: adamw
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-3
+
+trainer:
+  callbacks:
+    model_checkpoint:
+      save_last: true
+
+metadata:
+  run_name: Final Linear Classifier AdamW ${dataset.name}
+  description: "Final AdamW linear probe over frozen Virchow2 embeddings, trained on all training folds with early stopping on train/loss_epoch."

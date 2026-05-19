@@ -56,6 +56,9 @@ class MetaArch(LightningModule):
             n for n, _ in sorted(class_indices.items(), key=lambda kv: kv[1])
         ]
         num_classes = len(self.class_names)
+        # Placeholder weight so `criterion.weight` always exists in state_dict.
+        # setup(stage="fit") overrides with class-balanced weights; checkpoints
+        # then load with strict=True regardless of stage.
         self.criterion = nn.CrossEntropyLoss(weight=torch.ones(num_classes))
 
         macro_metrics = MetricCollection(
@@ -101,6 +104,8 @@ class MetaArch(LightningModule):
             )
             for cls, w in zip(self.class_names, weights.tolist(), strict=True):
                 mlflow.log_metric(f"class_weight/{cls}", w)
+        # Non-fit stages keep the placeholder ones-weight criterion from
+        # __init__ so `criterion.weight` stays in state_dict for strict load.
 
     def forward(self, x: Tensor) -> Outputs:
         features = self.backbone(x)
@@ -110,7 +115,7 @@ class MetaArch(LightningModule):
         if self.hparams["optimizer"] == "lbfgs":
             return self._lbfgs_training_step(batch, batch_idx)
 
-        inputs, targets, _ = batch
+        inputs, targets, *_ = batch
         outputs = self(inputs)
         loss = self.criterion(outputs, targets)
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -129,7 +134,7 @@ class MetaArch(LightningModule):
         )
 
     def validation_step(self, batch: Input, batch_idx: int) -> None:
-        inputs, targets, _ = batch
+        inputs, targets, *_ = batch
         outputs = self(inputs)
         loss = self.criterion(outputs, targets)
         self.log("validation/loss", loss, on_epoch=True, prog_bar=True)
@@ -142,8 +147,8 @@ class MetaArch(LightningModule):
         self._log_per_class(self.val_per_class, "validation")
         self._log_confmat(self.val_confmat, "validation")
 
-    def test_step(self, batch: Input, batch_idx: int) -> None:
-        inputs, targets, slide_ids = batch
+    def test_step(self, batch: Input, batch_idx: int) -> dict[str, Any]:
+        inputs, targets, slide_ids, xs, ys = batch
         outputs = self(inputs)
         self.test_metrics.update(outputs, targets)
         self.test_per_class.update(outputs, targets)
@@ -155,6 +160,14 @@ class MetaArch(LightningModule):
         for slide_id, ok in zip(slide_ids, correct, strict=True):
             self._test_slide_correct[slide_id] += int(ok)
             self._test_slide_total[slide_id] += 1
+        return {
+            "slide_id": list(slide_ids),
+            "x": xs.cpu(),
+            "y": ys.cpu(),
+            "target": targets.cpu(),
+            "pred": preds.cpu(),
+            "probs": outputs.softmax(dim=1).cpu(),
+        }
 
     def on_test_epoch_end(self) -> None:
         self._log_per_class(self.test_per_class, "test")
@@ -166,12 +179,14 @@ class MetaArch(LightningModule):
     def predict_step(
         self, batch: Input, batch_idx: int, dataloader_idx: int = 0
     ) -> dict[str, Any]:
-        inputs, targets, slide_ids = batch
+        inputs, targets, slide_ids, xs, ys = batch
         outputs = self(inputs)
         probs = outputs.softmax(dim=1)
         preds = outputs.argmax(dim=1)
         return {
             "slide_id": list(slide_ids),
+            "x": xs.cpu(),
+            "y": ys.cpu(),
             "target": targets.cpu(),
             "pred": preds.cpu(),
             "probs": probs.cpu(),
@@ -198,7 +213,7 @@ class MetaArch(LightningModule):
         )
 
     def _lbfgs_training_step(self, batch: Input, batch_idx: int) -> Tensor:
-        inputs, targets, _ = batch
+        inputs, targets, *_ = batch
         self._lbfgs_batches.append(self._prepare_lbfgs_batch(inputs, targets))
         lbfgs = self.hparams.get("lbfgs") or {}
         accumulation_steps = int(lbfgs.get("accumulate_batches", 1))
@@ -260,9 +275,9 @@ class MetaArch(LightningModule):
 
     def _validate_lbfgs_full_batch(self, datamodule: Any, train_size: int) -> None:
         lbfgs = self.hparams.get("lbfgs") or {}
-        batch_size = int(datamodule.batch_size)
+        train_batch_size = int(datamodule.train_batch_size)
         accumulation_steps = int(lbfgs.get("accumulate_batches", 1))
-        effective_batch_size = batch_size * accumulation_steps
+        effective_batch_size = train_batch_size * accumulation_steps
 
         if datamodule.train_shuffle:
             raise ValueError("LBFGS requires data.train_shuffle=false.")
@@ -271,9 +286,9 @@ class MetaArch(LightningModule):
         if effective_batch_size < train_size:
             raise ValueError(
                 "LBFGS requires a deterministic full-batch objective. Set "
-                "data.batch_size >= len(train) or set "
+                "data.train_batch_size >= len(train) or set "
                 "model.lbfgs.accumulate_batches >= ceil(len(train) / "
-                "data.batch_size). Current effective batch size is "
+                "data.train_batch_size). Current effective batch size is "
                 f"{effective_batch_size} for {train_size} training samples."
             )
 

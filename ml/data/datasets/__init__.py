@@ -1,4 +1,7 @@
-from ml.data.datasets.embedding_tiles import EmbeddingTilesDataset
+from ml.data.datasets.embedding_tiles import (
+    EmbeddingTilesDataset,
+    UnlabeledEmbeddingTilesDataset,
+)
 
 
-__all__ = ["EmbeddingTilesDataset"]
+__all__ = ["EmbeddingTilesDataset", "UnlabeledEmbeddingTilesDataset"]

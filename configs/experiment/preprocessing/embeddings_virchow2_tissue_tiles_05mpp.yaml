@@ -1,0 +1,17 @@
+# @package _global_
+
+defaults:
+  - /experiment/preprocessing/embeddings_virchow2_05mpp
+  - _self_
+
+# Embeddings for every tile in the train/test tiling split that intersects the
+# tissue mask. This is the tile universe used for doctor-review prediction maps.
+splits:
+  - test
+tile_source_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}
+tile_source_artifact_template: "tissue_stats/{split}_tiles.parquet"
+tile_filter_column: tile_tissue_coverage
+
+metadata:
+  run_name: "Embeddings: ${model} tissue tiles"
+  description: "Tile embeddings using ${model} over held-out test split tiles with tile_tissue_coverage > 0."

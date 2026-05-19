@@ -5,6 +5,12 @@ output_dir: ${project_path}/embeddings
 concurrency: 512
 block_size: 2048
 rows_per_file: 5000
+splits:
+  - train
+  - test
+tile_source_run_id: ${dataset.mlflow_artifacts.filter_tiles_run_id}
+tile_source_artifact_template: "filter_tiles/{split}_tiles.parquet"
+tile_filter_column: null
 
 metadata:
   run_name: "Embeddings: ${model}"
@@ -13,3 +19,7 @@ metadata:
     model: ${model}
     concurrency: ${concurrency}
     block_size: ${block_size}
+    splits: ${splits}
+    tile_source_run_id: ${tile_source_run_id}
+    tile_source_artifact_template: ${tile_source_artifact_template}
+    tile_filter_column: ${tile_filter_column}

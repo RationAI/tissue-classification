@@ -1,10 +1,10 @@
 # @package _global_
 
 data:
-  batch_size: 1024
+  train_batch_size: 1024
   num_workers: 4
   train_shuffle: true
-  train_drop_last: true
+  train_drop_last: false
 
   train:
     _target_: ml.data.datasets.EmbeddingTilesDataset
@@ -13,18 +13,6 @@ data:
     class_indices: ${class_indices}
     thresholds: ${thresholds}
     tissue_prop_min: ${tissue_prop_min}
-    exclude_folds:
-      - ${val_fold}
-
-  val:
-    _target_: ml.data.datasets.EmbeddingTilesDataset
-    embedding_uri: ${train_embedding_uri}
-    metadata_uri: ${train_metadata_uri}
-    class_indices: ${class_indices}
-    thresholds: ${thresholds}
-    tissue_prop_min: ${tissue_prop_min}
-    include_folds:
-      - ${val_fold}
 
   test:
     _target_: ml.data.datasets.EmbeddingTilesDataset

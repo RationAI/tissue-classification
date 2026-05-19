@@ -2,7 +2,7 @@ from kube_jobs import storage, submit_job
 
 
 submit_job(
-    job_name="tissue-classification-train-linear",
+    job_name="tissue-classification-test-linear-final",
     username=...,
     cpu=8,
     memory="64Gi",
@@ -12,7 +12,7 @@ submit_job(
         "git clone https://github.com/RationAI/tissue-classification.git workdir",
         "cd workdir",
         "uv sync",
-        "uv run python -m ml +experiment=... val_fold=0,1,2,3,4 model.weight_decay=0,1e-5,1e-4,1e-3,1e-2 --multirun",
+        "uv run python -m ml +experiment=...",
     ],
     storage=[storage.secure.PROJECTS],
 )
