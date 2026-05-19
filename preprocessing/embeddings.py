@@ -53,38 +53,6 @@ class EmbedTiles:
         return row
 
 
-def gb(value: float) -> int:
-    return int(value * 1024**3)
-
-
-def configure_dataset_execution(config: DictConfig) -> None:
-    ctx = ray.data.DataContext.get_current()
-
-    max_dataset_cpus = config.get("max_dataset_cpus")
-    max_dataset_object_store_gb = config.get("max_dataset_object_store_gb")
-    if max_dataset_cpus is not None or max_dataset_object_store_gb is not None:
-        ctx.execution_options.resource_limits = (
-            ctx.execution_options.resource_limits.copy(
-                cpu=float(max_dataset_cpus) if max_dataset_cpus is not None else None,
-                object_store_memory=(
-                    gb(float(max_dataset_object_store_gb))
-                    if max_dataset_object_store_gb is not None
-                    else None
-                ),
-            )
-        )
-
-    max_queued_bundles = config.get("downstream_capacity_max_queued_bundles")
-    if max_queued_bundles is not None:
-        ctx.downstream_capacity_backpressure_max_queued_bundles = int(
-            max_queued_bundles
-        )
-
-    backpressure_ratio = config.get("downstream_capacity_backpressure_ratio")
-    if backpressure_ratio is not None:
-        ctx.downstream_capacity_backpressure_ratio = float(backpressure_ratio)
-
-
 def select_slide_budget(
     tiles_dataset: pads.Dataset,
     row_filter: pads.Expression | None,
@@ -146,8 +114,6 @@ def select_slide_budget(
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    configure_dataset_execution(config)
-
     tile_source_run_id = config.get(
         "tile_source_run_id", config.dataset.mlflow_artifacts.filter_tiles_run_id
     )
@@ -213,37 +179,22 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         ds = ray.data.read_parquet(
             str(tiles_path),
             columns=columns,
-            ray_remote_args={"memory": gb(float(config.read_memory_gb))},
-            concurrency=int(config.read_concurrency),
+            ray_remote_args={"memory": 8 * 1024**3},
             override_num_blocks=num_blocks,
         )
         if tile_filter_column is not None:
-            light_compute = ray.data.TaskPoolStrategy(
-                size=int(config.light_op_concurrency)
-            )
             ds = ds.filter(
-                lambda row, c: row[c] > 0,
-                fn_kwargs={"c": tile_filter_column},
-                compute=light_compute,
+                lambda row, c: row[c] > 0, fn_kwargs={"c": tile_filter_column}
             )
-            ds = ds.drop_columns(
-                [tile_filter_column],
-                compute=light_compute,
-            )
+            ds = ds.drop_columns([tile_filter_column])
         if selected_slide_ids is not None:
-            light_compute = ray.data.TaskPoolStrategy(
-                size=int(config.light_op_concurrency)
-            )
             ds = ds.filter(
                 lambda row, ids: str(row["slide_id"]) in ids,
                 fn_kwargs={"ids": selected_slide_ids},
-                compute=light_compute,
             )
-        light_compute = ray.data.TaskPoolStrategy(size=int(config.light_op_concurrency))
         ds = ds.map(
             lambda row, si: {**row, **si[row["slide_id"]]},
             fn_kwargs={"si": slide_info},
-            compute=light_compute,
         )
         ds = ds.with_column(
             "tile",
@@ -255,21 +206,19 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 col("tile_extent_y"),
                 col("level"),
             ),
-            num_cpus=float(config.tile_read_num_cpus),
-            memory=gb(float(config.tile_read_memory_gb)),
+            num_cpus=1,
+            memory=4 * 1024**3,
         )
         ds = ds.drop_columns(["path", "level", "tile_extent_x", "tile_extent_y"])
         ds = ds.map(
             EmbedTiles,  # pyright: ignore[reportArgumentType]
             fn_constructor_args=(config.model, config.concurrency),
             compute=ray.data.ActorPoolStrategy(
-                min_size=int(config.embedding_actors),
-                max_size=int(config.embedding_actors),
-                max_tasks_in_flight_per_actor=int(
-                    config.embed_max_tasks_in_flight_per_actor
-                ),
+                min_size=4,
+                max_size=4,
+                max_tasks_in_flight_per_actor=max(1, config.concurrency // 4),
             ),
-            max_concurrency=int(config.concurrency),
+            max_concurrency=config.concurrency,
         )
 
         split_dir = Path(config.output_dir) / str(name)
@@ -282,11 +231,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
         t = time.monotonic()
         print(f"[main] starting write_parquet for split={name}")
-        ds.write_parquet(
-            str(tiles_parquet_dir),
-            min_rows_per_file=config.rows_per_file,
-            concurrency=int(config.write_concurrency),
-        )
+        ds.write_parquet(str(tiles_parquet_dir), min_rows_per_file=config.rows_per_file)
         print(f"[main] write_parquet finished in {time.monotonic() - t:.1f}s")
 
         logger.log_artifacts(str(split_dir), str(name))

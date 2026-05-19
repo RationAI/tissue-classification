@@ -3,20 +3,8 @@
 model: ???
 output_dir: ${project_path}/embeddings
 concurrency: 512
-embedding_actors: 4
-embed_max_tasks_in_flight_per_actor: 16
 block_size: 2048
 rows_per_file: 5000
-read_concurrency: 8
-read_memory_gb: 8
-light_op_concurrency: 8
-tile_read_num_cpus: 4
-tile_read_memory_gb: 6
-write_concurrency: 4
-max_dataset_cpus: 16
-max_dataset_object_store_gb: 6
-downstream_capacity_max_queued_bundles: 8
-downstream_capacity_backpressure_ratio: 0.5
 splits:
   - train
   - test
@@ -32,19 +20,7 @@ metadata:
   hyperparams:
     model: ${model}
     concurrency: ${concurrency}
-    embedding_actors: ${embedding_actors}
-    embed_max_tasks_in_flight_per_actor: ${embed_max_tasks_in_flight_per_actor}
     block_size: ${block_size}
-    read_concurrency: ${read_concurrency}
-    read_memory_gb: ${read_memory_gb}
-    light_op_concurrency: ${light_op_concurrency}
-    tile_read_num_cpus: ${tile_read_num_cpus}
-    tile_read_memory_gb: ${tile_read_memory_gb}
-    write_concurrency: ${write_concurrency}
-    max_dataset_cpus: ${max_dataset_cpus}
-    max_dataset_object_store_gb: ${max_dataset_object_store_gb}
-    downstream_capacity_max_queued_bundles: ${downstream_capacity_max_queued_bundles}
-    downstream_capacity_backpressure_ratio: ${downstream_capacity_backpressure_ratio}
     splits: ${splits}
     tile_source_run_id: ${tile_source_run_id}
     tile_source_artifact_template: ${tile_source_artifact_template}
