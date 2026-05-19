@@ -1,7 +1,6 @@
 """Write tile predictions as WSI-aligned BigTIFF masks."""
 
 from collections.abc import Mapping
-from hashlib import blake2b
 from pathlib import Path
 from re import sub
 from tempfile import TemporaryDirectory
@@ -28,7 +27,7 @@ class TiffPredictionMapWriter(Callback):
         self,
         slides_uri: str,
         artifact_path: str = "prediction_maps_tiff",
-        background_value: int = 255,
+        background_value: int = 0,
         draw_region: str = "central_stride",
         max_slides: int | None = None,
         slide_selection: str = "all",
@@ -518,10 +517,7 @@ def _safe_filename(value: str) -> str:
 
 
 def _slide_prediction_filename(path: str | Path) -> str:
-    path_str = str(path)
-    stem = Path(path_str).stem
-    digest = blake2b(path_str.encode("utf-8"), digest_size=4).hexdigest()
-    return _safe_filename(f"{stem}-{digest}.tiff")
+    return _safe_filename(f"{Path(path).stem}.tiff")
 
 
 def _spread_lut(n_classes: int) -> np.ndarray:
