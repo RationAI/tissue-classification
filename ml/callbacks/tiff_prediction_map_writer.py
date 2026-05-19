@@ -517,7 +517,7 @@ def _safe_filename(value: str) -> str:
 
 
 def _slide_prediction_filename(path: str | Path) -> str:
-    return _safe_filename(f"{Path(path).stem}.tiff")
+    return Path(path).with_suffix(".tiff").name
 
 
 def _spread_lut(n_classes: int) -> np.ndarray:
