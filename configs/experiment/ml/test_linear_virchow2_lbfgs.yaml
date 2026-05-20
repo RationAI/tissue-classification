@@ -31,6 +31,7 @@ trainer:
       _target_: ml.callbacks.TiffPredictionMapWriter
       slides_uri: runs:/${dataset.mlflow_artifacts.tiling_run_id}/test_split/slides.parquet
       artifact_path: prediction_maps_tiff
+      background_value: 0
       draw_region: central_stride
       slide_selection: all
       max_slides: null
