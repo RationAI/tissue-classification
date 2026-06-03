@@ -57,6 +57,8 @@ def export(
     output_path: Path,
     embedding_dim: int,
 ) -> None:
+    import onnx
+
     dummy = torch.randn(1, embedding_dim, dtype=torch.float32)
     torch.onnx.export(
         decode_head,
@@ -72,6 +74,13 @@ def export(
         },
         opset_version=17,
     )
+
+    # The torch dynamo exporter can split tensors into a separate ``*.data``
+    # file even for tiny models. Force the whole graph into a single .onnx so
+    # MLflow only needs to track one artifact and the Serve runtime never
+    # looks for a missing sidecar file.
+    model_proto = onnx.load(str(output_path), load_external_data=True)
+    onnx.save(model_proto, str(output_path), save_as_external_data=False)
 
 
 DEFAULT_CLASS_INDICES = {
