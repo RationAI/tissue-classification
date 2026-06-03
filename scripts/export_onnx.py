@@ -46,6 +46,7 @@ def load_decode_head(
         class_indices=class_indices,
         map_location="cpu",
         strict=True,
+        weights_only=False,
     )
     model.eval()
     return model.decode_head
