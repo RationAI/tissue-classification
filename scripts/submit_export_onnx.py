@@ -8,18 +8,18 @@ CHECKPOINT_URI = (
 
 submit_job(
     job_name="tissue-classification-export-onnx",
-    username=...,
+    username="vcifka",
     cpu=4,
     memory="16Gi",
     gpu=None,
     public=False,
     script=[
-        "git clone https://github.com/RationAI/tissue-classification.git workdir",
+        "git clone --branch feature/export-onnx https://github.com/RationAI/tissue-classification.git workdir",
         "cd workdir",
         "uv sync",
         "uv add onnx onnxscript",
         (
-            "uv run python scripts/export_onnx.py "
+            "PYTHONPATH=. uv run python scripts/export_onnx.py "
             f"--checkpoint {CHECKPOINT_URI} "
             "--output linear_head.onnx "
             f"--log-to-run-id {RUN_ID} "
