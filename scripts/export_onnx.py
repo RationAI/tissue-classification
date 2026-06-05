@@ -59,9 +59,15 @@ def export(
 ) -> None:
     import onnx
 
+    # Bake the softmax into the graph so the deployed model outputs per-class
+    # probabilities directly (ONNX Runtime computes it vectorized over the
+    # batch), instead of the serving code doing it per-row in Python.
+    export_module = nn.Sequential(decode_head, nn.Softmax(dim=-1))
+    export_module.eval()
+
     dummy = torch.randn(1, embedding_dim, dtype=torch.float32)
     torch.onnx.export(
-        decode_head,
+        export_module,
         dummy,
         str(output_path),
         export_params=True,
