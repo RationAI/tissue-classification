@@ -1,5 +1,5 @@
 import asyncio
-import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -221,20 +221,24 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             max_concurrency=config.concurrency,
         )
 
-        split_dir = Path(config.output_dir) / str(name)
-        split_dir.mkdir(parents=True, exist_ok=True)
-        tiles_parquet_dir = split_dir / "tiles"
-        if tiles_parquet_dir.exists():
-            shutil.rmtree(tiles_parquet_dir)
+        # Isolated per-run staging dir: avoids cross-model contamination and
+        # stale-file carryover from concurrent or previous runs sharing
+        # output_dir. Auto-removed after upload; nothing reads it afterward
+        # (training reads the mlflow run artifacts via runs:/ URIs).
+        Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=config.output_dir) as tmp_root:
+            split_dir = Path(tmp_root) / str(name)
+            tiles_parquet_dir = split_dir / "tiles"
+            split_dir.mkdir(parents=True, exist_ok=True)
 
-        slides.to_parquet(split_dir / "slides.parquet", index=False)
+            slides.to_parquet(split_dir / "slides.parquet", index=False)
 
-        t = time.monotonic()
-        print(f"[main] starting write_parquet for split={name}")
-        ds.write_parquet(str(tiles_parquet_dir), min_rows_per_file=config.rows_per_file)
-        print(f"[main] write_parquet finished in {time.monotonic() - t:.1f}s")
+            t = time.monotonic()
+            print(f"[main] starting write_parquet for split={name}")
+            ds.write_parquet(str(tiles_parquet_dir), min_rows_per_file=config.rows_per_file)
+            print(f"[main] write_parquet finished in {time.monotonic() - t:.1f}s")
 
-        logger.log_artifacts(str(split_dir), str(name))
+            logger.log_artifacts(str(split_dir), str(name))
 
 
 if __name__ == "__main__":
