@@ -235,7 +235,9 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
 
             t = time.monotonic()
             print(f"[main] starting write_parquet for split={name}")
-            ds.write_parquet(str(tiles_parquet_dir), min_rows_per_file=config.rows_per_file)
+            ds.write_parquet(
+                str(tiles_parquet_dir), min_rows_per_file=config.rows_per_file
+            )
             print(f"[main] write_parquet finished in {time.monotonic() - t:.1f}s")
 
             logger.log_artifacts(str(split_dir), str(name))
