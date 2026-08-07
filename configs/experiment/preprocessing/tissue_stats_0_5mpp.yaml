@@ -5,6 +5,10 @@ defaults:
   - /data: dataset
   - _self_
 
+# Resolution the tissue masks were requested at. Recorded for provenance only — the
+# tile -> mask scale is derived from image dimensions, not from this value. Note that
+# closest_level snaps to real pyramid levels, so on TCGA slides with downsamples
+# 1/4/16 a 2.0 request actually lands at ~1.0.
 mpp: 2.0
 
 mask_source:
