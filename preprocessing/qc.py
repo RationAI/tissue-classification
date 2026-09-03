@@ -42,6 +42,16 @@ def group_slides_by_level(slides: list[str], target_mpp: float) -> dict[int, lis
     return groups
 
 
+def append_error_log(output_path: str, message: str) -> None:
+    """Append one QC failure to the error log.
+
+    Kept synchronous and dispatched with `asyncio.to_thread` by the async caller, so
+    the blocking write never stalls the event loop.
+    """
+    with open(Path(output_path) / "qc_errors.log", "a") as log_file:
+        log_file.write(message)
+
+
 async def qc_main(
     output_path: str,
     report_path: str,
@@ -87,8 +97,7 @@ async def qc_main(
             if not result.success:
                 error_msg = f"Failed to process {result.wsi_path}: {result.error}\n"
                 print(f"❌ {error_msg.strip()}")
-                with open(Path(output_path) / "qc_errors.log", "a") as log_file:
-                    log_file.write(error_msg)
+                await asyncio.to_thread(append_error_log, output_path, error_msg)
 
         await client.qc.generate_report(
             backgrounds=slides,
