@@ -56,44 +56,65 @@ def sat_coverage(
     mask_w: int,
     y0: np.ndarray,
     x0: np.ndarray,
-    extent: int,
+    extent_x: int,
+    extent_y: int,
 ) -> np.ndarray:
-    """Compute foreground fraction over [y0:y0+extent, x0:x0+extent] rectangles using a SAT.
+    """Compute foreground fraction over [y0:y0+extent_y, x0:x0+extent_x] rectangles using a SAT.
 
     Coverage is normalized by the full rectangle area, so tiles partially outside the
     mask are penalized in proportion to how much of them sits outside.
     """
     cy0 = np.clip(y0, 0, mask_h)
     cx0 = np.clip(x0, 0, mask_w)
-    cy1 = np.clip(y0 + extent, 0, mask_h)
-    cx1 = np.clip(x0 + extent, 0, mask_w)
+    cy1 = np.clip(y0 + extent_y, 0, mask_h)
+    cx1 = np.clip(x0 + extent_x, 0, mask_w)
     sums = sat[cy1, cx1] - sat[cy0, cx1] - sat[cy1, cx0] + sat[cy0, cx0]
-    return sums / (extent * extent)
+    return sums / (extent_x * extent_y)
 
 
 @ray.remote(num_cpus=1, max_calls=1)
 def process_slide(
     slide_tiles: pd.DataFrame,
     mask_paths: dict[str, str],
-    tile_extent: int,
-    tile_mpp: float,
-    mask_mpp: float,
+    tile_extent_x: int,
+    tile_extent_y: int,
+    extent_x: int,
+    extent_y: int,
 ) -> pd.DataFrame:
-    scale = tile_mpp / mask_mpp
-    tm_extent = max(1, round(tile_extent * scale))
-    roi_offset = tm_extent // 4
-    roi_extent = max(1, tm_extent // 2)
+    """Compute per-tile coverage of each mask for one slide.
 
-    xs = np.round(slide_tiles["x"].to_numpy() * scale).astype(int)
-    ys = np.round(slide_tiles["y"].to_numpy() * scale).astype(int)
-
+    The tiling level and every mask depict the same physical slide, so the ratio of
+    their pixel dimensions *is* the coordinate scale, derived per mask because one run
+    can configure masks of differing resolution. Do not reintroduce a scale computed
+    from the configured mpp: mask builders resolve their target mpp through
+    ``OpenSlide.closest_level``, which snaps to the nearest pyramid level, so a 2.0 mpp
+    request on a slide with downsamples 1/4/16 yields a ~1.0 mpp mask. Scaling tile
+    coordinates by that stale ratio shifted every sampled window proportionally to its
+    distance from the origin.
+    """
     result = slide_tiles.copy()
+    tile_x = slide_tiles["x"].to_numpy()
+    tile_y = slide_tiles["y"].to_numpy()
+
     for name, path in mask_paths.items():
         mask = tifffile.imread(path)
         if mask.ndim > 2:
             mask = mask[..., 0]
 
         mask_h, mask_w = mask.shape
+        scale_x = mask_w / extent_x
+        scale_y = mask_h / extent_y
+
+        tm_extent_x = max(1, round(tile_extent_x * scale_x))
+        tm_extent_y = max(1, round(tile_extent_y * scale_y))
+        roi_offset_x = tm_extent_x // 4
+        roi_offset_y = tm_extent_y // 4
+        roi_extent_x = max(1, tm_extent_x // 2)
+        roi_extent_y = max(1, tm_extent_y // 2)
+
+        xs = np.round(tile_x * scale_x).astype(int)
+        ys = np.round(tile_y * scale_y).astype(int)
+
         sat = np.zeros((mask_h + 1, mask_w + 1), dtype=np.int64)
         np.greater(mask, 0, out=sat[1:, 1:], casting="unsafe")
         del mask
@@ -101,10 +122,16 @@ def process_slide(
         np.cumsum(sat, axis=1, out=sat)
 
         result[f"tile_{name}_coverage"] = sat_coverage(
-            sat, mask_h, mask_w, ys, xs, tm_extent
+            sat, mask_h, mask_w, ys, xs, tm_extent_x, tm_extent_y
         )
         result[f"roi_{name}_coverage"] = sat_coverage(
-            sat, mask_h, mask_w, ys + roi_offset, xs + roi_offset, roi_extent
+            sat,
+            mask_h,
+            mask_w,
+            ys + roi_offset_y,
+            xs + roi_offset_x,
+            roi_extent_x,
+            roi_extent_y,
         )
         del sat
 
@@ -116,7 +143,6 @@ def add_coverage(
     tiles: pa.Table,
     mask_dir: Path,
     masks: dict[str, str],
-    mask_mpp: float,
     output_path: Path,
 ) -> dict[str, float]:
     """Dispatch per-slide coverage computation as Ray tasks.
@@ -129,7 +155,9 @@ def add_coverage(
     and argsort the int indices to group row positions per slide — a full
     string-column sort/take on 80M rows would overflow pyarrow's int32 string offsets.
     """
-    slide_info = slides.set_index("id")[["path", "tile_extent_x", "mpp_x"]]
+    slide_info = slides.set_index("id")[
+        ["path", "tile_extent_x", "tile_extent_y", "extent_x", "extent_y"]
+    ]
 
     if len(tiles) == 0:
         raise ValueError("tiles table is empty")
@@ -167,8 +195,6 @@ def add_coverage(
 
         info = slide_info.loc[slide_id]
         wsi_path = Path(str(info["path"]))
-        tile_extent = int(info["tile_extent_x"])
-        tile_mpp = float(info["mpp_x"])
 
         mask_paths = {
             name: str(mask_dir / template.format(stem=wsi_path.stem))
@@ -188,7 +214,12 @@ def add_coverage(
         )
         futures.append(
             process_slide.remote(
-                slide_tiles, mask_paths, tile_extent, tile_mpp, mask_mpp
+                slide_tiles,
+                mask_paths,
+                int(info["tile_extent_x"]),
+                int(info["tile_extent_y"]),
+                int(info["extent_x"]),
+                int(info["extent_y"]),
             )
         )
 
@@ -261,9 +292,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             )
 
             output_path = Path(tmp_dir) / f"{split_name}_tiles.parquet"
-            stats = add_coverage(
-                slides, tiles, mask_dir, masks, config.mpp, output_path
-            )
+            stats = add_coverage(slides, tiles, mask_dir, masks, output_path)
 
             mlflow.log_metric(f"{split_name}_tile_count", stats["tile_count"])
             for key, value in stats.items():
