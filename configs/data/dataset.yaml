@@ -13,14 +13,14 @@ dataset:
     train_split_filename: "split_mapping/train_split.csv"
     test_split_filename: "split_mapping/test_split.csv"
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
-    filter_tiles_run_id: "4e8f5d3c82124ea5a8f871a42d3ed9ba"
+    filter_tiles_run_id: "9a844082b48d47bfa5d3e7a37d7de268"
     stratified_kfold_run_id: "850c81506684450b9af92296acfd045a"
     stratified_group_kfold_run_id: "382b41d2fa894514908e8067949c4326"
     embedding_run_ids:
       virchow2: "262d680f52374614baaf19f1e4d05940"
       provgigapath: "5099ce57e886411dababfc1234a88b23"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
-    tissue_stats_run_id: "16ae2d003d88471b924e5f332415232a"
+    tissue_stats_run_id: "f3401b702f044ac097a177bea30161e5"
 
   exclusions:
     bad_slides:
