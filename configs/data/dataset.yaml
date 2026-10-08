@@ -14,8 +14,8 @@ dataset:
     test_split_filename: "split_mapping/test_split.csv"
     tiling_run_id: "fdf7550a2004474f8c7a05dc0cf1fd86"
     filter_tiles_run_id: "9a844082b48d47bfa5d3e7a37d7de268"
-    stratified_kfold_run_id: "850c81506684450b9af92296acfd045a"
-    stratified_group_kfold_run_id: "382b41d2fa894514908e8067949c4326"
+    stratified_kfold_run_id: "e2132cd681e04892b2bfe837a7295b55"
+    stratified_group_kfold_run_id: "9c2618576b89453893788a7401fef393"
     embedding_run_ids:
       virchow2: "262d680f52374614baaf19f1e4d05940"
       provgigapath: "5099ce57e886411dababfc1234a88b23"

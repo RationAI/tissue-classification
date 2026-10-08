@@ -7,8 +7,6 @@ defaults:
 embedding_model_name: ProvGigaPath
 embedding_dim: 1536
 embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_ids.provgigapath}
-kfold_strategy: stratified_group
-kfold_run_id: ${dataset.mlflow_artifacts.stratified_group_kfold_run_id}
 mlflow_artifact_path: linear_classifier_final_provgigapath
 
 # Set after Stage 1 from ProvGigaPath's own LBFGS sweep selected by
