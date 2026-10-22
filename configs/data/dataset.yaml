@@ -17,8 +17,8 @@ dataset:
     stratified_kfold_run_id: "e2132cd681e04892b2bfe837a7295b55"
     stratified_group_kfold_run_id: "9c2618576b89453893788a7401fef393"
     embedding_run_ids:
-      virchow2: "262d680f52374614baaf19f1e4d05940"
-      provgigapath: "5099ce57e886411dababfc1234a88b23"
+      virchow2: "6dbdc6e57fab472b8d8c33b44b82aa6a"
+      provgigapath: "e281c836bc0e4a3291cd23733b2246b4"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
     tissue_stats_run_id: "f3401b702f044ac097a177bea30161e5"
 
