@@ -1,0 +1,14 @@
+# @package _global_
+
+# Same grid as the training tiling run. The dataset has no annotation masks, so all
+# coverage columns are zero; the class mapping only fixes the column set.
+defaults:
+  - /data: pni_prostate
+  - /class_mapping: collapse_alterations_to_other
+  - _self_
+
+tile_size: 224
+stride: 112
+mpp: 0.5
+splits:
+  - test

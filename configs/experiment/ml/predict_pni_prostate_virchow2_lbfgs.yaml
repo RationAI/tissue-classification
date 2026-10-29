@@ -1,0 +1,20 @@
+# @package _global_
+
+# Unlabeled prediction over every pni_prostate tissue tile with the final Virchow2
+# L-BFGS probe trained on the main dataset. Writes predictions.parquet and per-slide
+# prediction maps for PNI detection.
+defaults:
+  - /experiment/ml/predict_linear_virchow2_lbfgs_tissue_tiles
+  - override /data: pni_prostate
+  - _self_
+
+tissue_embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_ids.virchow2}
+
+# Training-side inputs of final_linear_classifier; unused in predict mode and absent
+# from the pni_prostate dataset config.
+kfold_run_id: null
+filter_tiles_run_id: null
+
+metadata:
+  run_name: Predict Linear Classifier ${dataset.name}
+  description: "Predict final linear classifier over all ${dataset.name} tissue tiles for perineural invasion detection."

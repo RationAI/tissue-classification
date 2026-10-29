@@ -279,7 +279,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     masks = cast("dict[str, str]", OmegaConf.to_container(config.masks, resolve=True))
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        for split_name in ("train", "test"):
+        for split_name in config.splits:
             local_path = mlflow.artifacts.download_artifacts(
                 run_id=tiling_run_id,
                 artifact_path=f"{split_name}_split/slides.parquet",

@@ -4,6 +4,9 @@ mlflow_artifact_path: tiling
 tile_size: ???
 stride: ???
 mpp: ???
+splits:
+  - train
+  - test
 
 metadata:
   run_name: Tiling ${dataset.name}
@@ -12,4 +15,5 @@ metadata:
     tile_size: ${tile_size}
     stride: ${stride}
     mpp: ${mpp}
+    splits: ${splits}
 

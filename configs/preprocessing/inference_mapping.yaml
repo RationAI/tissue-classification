@@ -1,0 +1,5 @@
+# @package _global_
+
+metadata:
+  run_name: Inference slide map ${dataset.name}
+  description: All slides of ${dataset.name} mapped into a single test split for inference without annotation masks.

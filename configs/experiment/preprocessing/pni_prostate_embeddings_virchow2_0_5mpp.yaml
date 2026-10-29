@@ -1,0 +1,19 @@
+# @package _global_
+
+# Every tile intersecting the tissue mask, on every slide: PNI detection needs the
+# whole slide, and the dataset is small enough that no slide sampling cap is needed.
+defaults:
+  - /experiment/preprocessing/embeddings_virchow2_0_5mpp
+  - override /data: pni_prostate
+  - _self_
+
+splits:
+  - test
+tile_source_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}
+tile_source_artifact_template: "tissue_stats/{split}_tiles.parquet"
+tile_filter_column: tile_tissue_coverage
+slide_sample_max_tiles: null
+
+metadata:
+  run_name: "Embeddings: ${model} ${dataset.name} tissue tiles"
+  description: "Tile embeddings using ${model} over all ${dataset.name} tiles with tile_tissue_coverage > 0."

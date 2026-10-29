@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - /experiment/preprocessing/tissue_stats_0_5mpp
+  - override /data: pni_prostate
+  - _self_
+
+splits:
+  - test

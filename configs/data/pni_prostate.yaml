@@ -1,0 +1,38 @@
+# @package _global_
+
+# Inference-only dataset for perineural invasion (PNI) detection: four prostate H&E
+# slides of one case (2025_01403). None of them is in the training dataset and no
+# prostate slide is. Run order, each stage with +experiment=<stage>/pni_prostate_*:
+#   inference_mapping -> tiling -> tissue_masks -> coverage_stats (tissue stats)
+#   -> embeddings -> ml predict
+# and fill the matching run ID below after each stage.
+dataset:
+  name: pni_prostate
+  description: "Prostate slides with perineural invasion (MOU inbox), inference only"
+  organ: prostate
+
+  mlflow_artifacts:
+    # inference_mapping logs both the slide map and the (test-only) split.
+    mapping_run_id: ""
+    mapping_filename: "dataset_map.csv"
+    train_test_split_run_id: ${dataset.mlflow_artifacts.mapping_run_id}
+    test_split_filename: "split_mapping/test_split.csv"
+    tiling_run_id: ""
+    tissue_masks_run_id: ""
+    tissue_stats_run_id: ""
+    embedding_run_ids:
+      virchow2: ""
+
+  exclusions:
+    bad_slides: []
+
+  wsi_sources:
+    mou_pni: "/mnt/data/MOU/inbox/anotace perineuralni invaze prostaty/*.tiff"
+
+  # QuPath exports used only as PNI evaluation targets (pni.annotations), keyed by
+  # slide file name. Must be FeatureCollection exports: QuPath's plain export is a
+  # bare feature array that geopandas cannot read. Slides -23 and -25 are
+  # unannotated.
+  pni_annotations:
+    "2025_01403-3-17.mrxs.tiff": "/mnt/data/MOU/inbox/anotace perineuralni invaze prostaty/project/2025_01403-3-17-feature collection.geojson"
+    "2025_01403-3-21.mrxs.tiff": "/mnt/data/MOU/inbox/anotace perineuralni invaze prostaty/project/2025_01403-3-21 feature collection.geojson"

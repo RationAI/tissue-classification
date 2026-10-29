@@ -3,6 +3,9 @@
 mpp: ???
 masks: ???
 mask_source: ???
+splits:
+  - train
+  - test
 
 mlflow_artifact_path: coverage_stats
 

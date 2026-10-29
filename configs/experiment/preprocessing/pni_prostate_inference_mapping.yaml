@@ -1,0 +1,5 @@
+# @package _global_
+
+defaults:
+  - /data: pni_prostate
+  - _self_

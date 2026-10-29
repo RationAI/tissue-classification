@@ -67,21 +67,29 @@ def tile_with_coverage(
     tile with two coverage values per class:
     - tile_coverage: fraction of the whole tile area covered by the class
     - roi_coverage: fraction of the central half-size ROI covered by the class
+
+    Slides with an empty ``annotation_path`` (inference-only datasets) still get the
+    full tile grid, with every coverage equal to zero.
     """
-    annotation_path = Path(row["annotation_path"])
-    path_str = str(annotation_path)
+    path_str = row["annotation_path"]
 
-    if path_str.endswith((".geo.json", ".geojson")):
-        parser = GeoJSONParser(annotation_path)
-    elif path_str.endswith(".json"):
-        parser = Darwin7JSONParser(annotation_path)
+    if not path_str:
+        class_annotations: dict[str, list[BaseGeometry]] = {
+            cls_name: [] for cls_name in class_mapping
+        }
     else:
-        return []
+        annotation_path = Path(path_str)
+        if path_str.endswith((".geo.json", ".geojson")):
+            parser = GeoJSONParser(annotation_path)
+        elif path_str.endswith(".json"):
+            parser = Darwin7JSONParser(annotation_path)
+        else:
+            return []
 
-    class_annotations = {
-        cls_name: get_validated_polygons(parser, original_names)
-        for cls_name, original_names in class_mapping.items()
-    }
+        class_annotations = {
+            cls_name: get_validated_polygons(parser, original_names)
+            for cls_name, original_names in class_mapping.items()
+        }
 
     tile_w, tile_h = row["tile_extent_x"], row["tile_extent_y"]
     tile_polygon = Polygon([(0, 0), (tile_w, 0), (tile_w, tile_h), (0, tile_h)])
@@ -186,7 +194,9 @@ def tiling(
     All tiles are retained regardless of coverage — filtering by threshold is done
     downstream once the distribution is known.
     """
-    path_to_annotation = dict(zip(df["wsi_path"], df["annotation_path"], strict=True))
+    # Empty annotation paths round-trip through CSV as NaN.
+    annotation_paths = df["annotation_path"].fillna("").astype(str)
+    path_to_annotation = dict(zip(df["wsi_path"], annotation_paths, strict=True))
     class_names = list(class_mapping.keys())
 
     slides = read_slides(
@@ -222,12 +232,8 @@ def tiling(
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    split_artifacts = {
-        "train": config.dataset.mlflow_artifacts.train_split_filename,
-        "test": config.dataset.mlflow_artifacts.test_split_filename,
-    }
-
-    for split_name, split_artifact in split_artifacts.items():
+    for split_name in config.splits:
+        split_artifact = config.dataset.mlflow_artifacts[f"{split_name}_split_filename"]
         split_df = pd.read_csv(
             mlflow.artifacts.download_artifacts(
                 run_id=config.dataset.mlflow_artifacts.train_test_split_run_id,

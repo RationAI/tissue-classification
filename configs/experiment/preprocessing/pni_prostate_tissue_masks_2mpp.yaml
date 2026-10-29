@@ -1,0 +1,9 @@
+# @package _global_
+
+# Same settings as tissue_masks_2mpp, which the training tissue stats come from.
+defaults:
+  - /data: pni_prostate
+  - _self_
+
+mpp: 2.0
+disk_factor: 50
