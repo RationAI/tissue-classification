@@ -19,7 +19,7 @@ dataset:
     test_split_filename: "split_mapping/test_split.csv"
     tiling_run_id: "1dd4eaa5005745d7a711e0bf598191d2"
     tissue_masks_run_id: "e05a168081114895a2c7f2f253af0557"
-    tissue_stats_run_id: ""
+    tissue_stats_run_id: "952a2b86600b4cc889c7429064bb3baa"
     embedding_run_ids:
       virchow2: ""
 
