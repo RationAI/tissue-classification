@@ -17,7 +17,7 @@ dataset:
     mapping_filename: "dataset_map.csv"
     train_test_split_run_id: ${dataset.mlflow_artifacts.mapping_run_id}
     test_split_filename: "split_mapping/test_split.csv"
-    tiling_run_id: ""
+    tiling_run_id: "1dd4eaa5005745d7a711e0bf598191d2"
     tissue_masks_run_id: ""
     tissue_stats_run_id: ""
     embedding_run_ids:
