@@ -13,7 +13,7 @@ dataset:
 
   mlflow_artifacts:
     # inference_mapping logs both the slide map and the (test-only) split.
-    mapping_run_id: ""
+    mapping_run_id: "e10f35ba7cd8435b9942910233129d42"
     mapping_filename: "dataset_map.csv"
     train_test_split_run_id: ${dataset.mlflow_artifacts.mapping_run_id}
     test_split_filename: "split_mapping/test_split.csv"
