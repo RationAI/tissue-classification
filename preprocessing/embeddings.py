@@ -114,9 +114,10 @@ def select_slide_budget(
 @hydra.main(config_path="../configs", config_name="preprocessing", version_base=None)
 @autolog
 def main(config: DictConfig, logger: MLFlowLogger) -> None:
-    tile_source_run_id = config.get(
-        "tile_source_run_id", config.dataset.mlflow_artifacts.filter_tiles_run_id
-    )
+    # The fallback must stay lazy: inference-only datasets define no filter_tiles run.
+    tile_source_run_id = config.get("tile_source_run_id")
+    if tile_source_run_id is None:
+        tile_source_run_id = config.dataset.mlflow_artifacts.filter_tiles_run_id
     tile_source_artifact_template = config.get(
         "tile_source_artifact_template", "filter_tiles/{split}_tiles.parquet"
     )
