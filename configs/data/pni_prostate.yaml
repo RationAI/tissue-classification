@@ -21,7 +21,7 @@ dataset:
     tissue_masks_run_id: "e05a168081114895a2c7f2f253af0557"
     tissue_stats_run_id: "952a2b86600b4cc889c7429064bb3baa"
     embedding_run_ids:
-      virchow2: ""
+      virchow2: "25ea87d1cfcb4f05b27edfb066046824"
 
   exclusions:
     bad_slides: []
