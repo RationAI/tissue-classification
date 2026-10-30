@@ -6,6 +6,8 @@ radius: ???
 min_tiles: ???
 # Resolution of the rasterised annotation masks (display only).
 annotation_mpp: 2.0
+# Sizes of the top-k region lists scored in stats/ranking.csv.
+ranking_ks: [10, 20, 50, 100]
 
 metadata:
   run_name: PNI detection ${dataset.name}

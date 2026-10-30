@@ -13,6 +13,7 @@ Per slide the stage logs:
 - ``regions/<slide stem>.geojson``: one level-0 polygon per region, rank and tile
   counts in the properties, importable into QuPath
 - ``regions.csv``: all regions of all slides
+- ``stats/*.csv``: summary tables from ``pni.stats``
 - ``annotations/<slide file name>``: on annotated slides, the QuPath Nerve (128)
   and PNI (255) polygons rasterised at ``annotation_mpp``, for display next to
   the candidates
@@ -38,6 +39,7 @@ from shapely import STRtree, box, unary_union
 from shapely.geometry import mapping
 from shapely.geometry.base import BaseGeometry
 
+from pni import stats
 from pni.annotations import NERVE, PNI, load_qupath_annotations
 
 
@@ -296,8 +298,15 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     annotation_paths = dict(config.dataset.get("pni_annotations") or {})
     nerve_index = int(config.class_indices[config.nerve_class])
     epithelium_index = int(config.class_indices[config.epithelium_class])
+    class_names = sorted(config.class_indices, key=lambda c: config.class_indices[c])
 
     all_regions = []
+    tables: dict[str, list[dict[str, Any]]] = {
+        "class_distribution": [],
+        "class_in_annotations": [],
+        "detection": [],
+        "ranking": [],
+    }
     totals: dict[str, float] = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
         out = Path(tmp_dir)
@@ -354,9 +363,23 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 )
             )
             mlflow.log_metric(f"regions_{stem}", len(regions))
+            tables["class_distribution"] += stats.class_distribution(
+                tiles, class_names, name
+            )
 
+            annotations = None
             if name in annotation_paths:
                 annotations = load_qupath_annotations(annotation_paths[name])
+                tables["class_in_annotations"] += stats.class_in_annotations(
+                    tiles,
+                    {str(k): v for k, v in slide.items()},
+                    annotations,
+                    class_names,
+                    name,
+                )
+                tables["ranking"] += stats.ranking(
+                    regions, polygons, annotations, config.ranking_ks, name
+                )
                 write_annotation_mask(
                     annotations,
                     str(slide["path"]),
@@ -369,9 +392,16 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                     mlflow.log_metric(f"{key}_{stem}", value)
                     totals[key] = totals.get(key, 0) + value
 
+            tables["detection"].append(
+                stats.detection_summary(regions, polygons, annotations, name)
+            )
+
         pd.concat(all_regions, ignore_index=True).to_csv(
             out / "regions.csv", index=False
         )
+        (out / "stats").mkdir()
+        for table, rows in tables.items():
+            pd.DataFrame(rows).to_csv(out / "stats" / f"{table}.csv", index=False)
         logger.log_artifacts(tmp_dir)
 
     if totals.get("pni_polygons"):
