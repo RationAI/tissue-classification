@@ -1,0 +1,14 @@
+# @package _global_
+
+nerve_class: Nerve
+epithelium_class: Epithelium
+radius: ???
+min_tiles: ???
+
+metadata:
+  run_name: PNI detection ${dataset.name}
+  description: "Perineural invasion candidates where ${nerve_class} and ${epithelium_class} tile predictions meet within ${radius} grid steps, regions of at least ${min_tiles} tiles, from prediction run ${dataset.mlflow_artifacts.prediction_run_id}."
+  hyperparams:
+    radius: ${radius}
+    min_tiles: ${min_tiles}
+    prediction_run_id: ${dataset.mlflow_artifacts.prediction_run_id}

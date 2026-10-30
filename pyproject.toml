@@ -31,6 +31,7 @@ dependencies = [
     "timm>=1.0.0",
     "einops>=0.8.0",
     "matplotlib>=3.10.7",
+    "scipy>=1.16",
 ]
 
 [dependency-groups]
@@ -40,11 +41,15 @@ dev = [
     "types-tqdm",
     "pandas-stubs",
 ]
+report = [
+    "report-fast[mlflow]",
+]
 
 [tool.uv.sources]
 rationai-mlkit = { git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/mlkit.git" }
 rationai-sdk = { git = "https://github.com/RationAI/rationai-sdk-python.git" }
 rationai-tiling = { git = "https://gitlab.ics.muni.cz/rationai/digital-pathology/libraries/tiling.git" }
+report-fast = { git = "https://github.com/RationAI/ReportFast.git" }
 
 [tool.uv]
 override-dependencies = [

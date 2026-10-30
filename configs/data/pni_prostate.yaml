@@ -4,7 +4,7 @@
 # slides of one case (2025_01403). None of them is in the training dataset and no
 # prostate slide is. Run order, each stage with +experiment=<stage>/pni_prostate_*:
 #   inference_mapping -> tiling -> tissue_masks -> coverage_stats (tissue stats)
-#   -> embeddings -> ml predict
+#   -> embeddings -> ml predict -> pni.detect
 # and fill the matching run ID below after each stage.
 dataset:
   name: pni_prostate
@@ -22,6 +22,8 @@ dataset:
     tissue_stats_run_id: "952a2b86600b4cc889c7429064bb3baa"
     embedding_run_ids:
       virchow2: "25ea87d1cfcb4f05b27edfb066046824"
+    prediction_run_id: "5ea2e294538f4f388d579969006fd615"
+    pni_detection_run_id: ""
 
   exclusions:
     bad_slides: []

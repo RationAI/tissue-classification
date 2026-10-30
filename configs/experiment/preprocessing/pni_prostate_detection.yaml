@@ -1,0 +1,13 @@
+# @package _global_
+
+# Class indices must match the probe that produced the predictions, which was
+# trained with collapse_alterations_to_other.
+defaults:
+  - /data: pni_prostate
+  - /class_mapping: collapse_alterations_to_other
+  - _self_
+
+# Chosen on slides -17 and -21: 99% of annotated PNI polygons touched at ~460
+# regions; radius 1 fragments regions, radius 3 flags more plain nerves.
+radius: 2
+min_tiles: 3
