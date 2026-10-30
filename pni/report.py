@@ -5,7 +5,8 @@ detection run (shown on open) and the tissue class map of the prediction run the
 were derived from (off on open, toggled in the viewer's layer panel). The page is
 written locally and not published anywhere.
 
-Run where the slides are mounted and MLflow answers (an e-INFRA pod):
+Needs only the MLflow tracking API (in-cluster, or tunnelled): the slides are
+taken from the dataset's slide map, so nothing has to be mounted where it runs.
 
     uv run --group report python -m pni.report --output pni_report.html
 
@@ -14,11 +15,11 @@ recorded pipeline run.
 """
 
 import argparse
-from pathlib import Path
+import tempfile
 
 import pandas as pd
 from omegaconf import OmegaConf
-from report_fast import Drive, Mask, MlflowRun, Report, SlideCard, case_matrix
+from report_fast import Mask, MlflowRun, Report, SlideCard, case_matrix
 from report_fast.mlflow import Mlflow
 
 
@@ -89,14 +90,17 @@ def main() -> None:
     detection = OmegaConf.select(artifacts, "pni_detection_run_id")
     if not detection:
         raise SystemExit(f"{args.dataset}: pni_detection_run_id is not set yet")
-    slide_dir = Path(str(next(iter(dataset.wsi_sources.values())))).parent
 
     flow = Mlflow.from_env()
-    regions = pd.read_csv(flow.download(detection, "regions.csv", out="."))
+    with tempfile.TemporaryDirectory() as tmp:
+        slide_map = pd.read_csv(
+            flow.download(artifacts.mapping_run_id, artifacts.mapping_filename, tmp)
+        )
+        regions = pd.read_csv(flow.download(detection, "regions.csv", tmp))
     metrics = flow.metrics(detection)
 
     matrix = case_matrix(
-        Drive(slide_dir, recursive=False),
+        sorted(slide_map["wsi_path"]),
         [candidate_mask(detection), tissue_mask(artifacts.prediction_run_id)],
         min_layers=2,
         flow=flow,
