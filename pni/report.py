@@ -19,7 +19,7 @@ import tempfile
 
 import pandas as pd
 from omegaconf import OmegaConf
-from report_fast import Mask, MlflowRun, Report, SlideCard, case_matrix
+from report_fast import Mask, MlflowRun, Report, SlideGrid, case_matrix
 from report_fast.mlflow import Mlflow
 
 
@@ -144,9 +144,12 @@ def main() -> None:
             " outlines a candidate touches. -23 and -25 are unannotated."
         ),
     )
+    # Narrow columns keep all four slides in one row on a laptop screen.
+    grid = SlideGrid(min_width=180, card={"thumbnail_size": 256})
     for session in matrix.sessions:
         stem = session.names[0]
-        report.add(SlideCard(session, note=card_note(stem, regions, metrics)))
+        grid.add(session, note=card_note(stem, regions, metrics))
+    report.add(grid)
 
     path = report.write(args.output)
     print(f"wrote {path}")

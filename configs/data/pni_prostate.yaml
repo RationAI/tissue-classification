@@ -23,7 +23,7 @@ dataset:
     embedding_run_ids:
       virchow2: "25ea87d1cfcb4f05b27edfb066046824"
     prediction_run_id: "5ea2e294538f4f388d579969006fd615"
-    pni_detection_run_id: "cce3df0ca35b400cac46fd437f65ca0e"
+    pni_detection_run_id: "3b9af4d9ff4b4bc08a75d11fec2e9b8f"
 
   exclusions:
     bad_slides: []
