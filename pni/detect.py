@@ -13,6 +13,9 @@ Per slide the stage logs:
 - ``regions/<slide stem>.geojson``: one level-0 polygon per region, rank and tile
   counts in the properties, importable into QuPath
 - ``regions.csv``: all regions of all slides
+- ``annotations/<slide file name>``: on annotated slides, the QuPath Nerve (128)
+  and PNI (255) polygons rasterised at ``annotation_mpp``, for display next to
+  the candidates
 
 and, for slides with annotations, how many PNI and Nerve polygons a region touches.
 """
@@ -196,6 +199,59 @@ def evaluate(
     }
 
 
+#: Annotation mask values, spread over uint8 like the prediction maps so one
+#: colormap convention reads both: background 0, then 255 * (i + 1) / n.
+ANNOTATION_VALUES = {NERVE: 128, PNI: 255}
+
+
+def write_annotation_mask(
+    annotations: dict[str, list[Any]],
+    slide_path: str,
+    mpp: float,
+    path: Path,
+) -> None:
+    """Rasterise QuPath Nerve / PNI polygons at the slide level closest to `mpp`.
+
+    Drawn like ``preprocessing.annotation_masks``: exteriors filled with the class
+    value, holes cleared, written as a BigTIFF carrying that level's resolution.
+    """
+    import pyvips
+    from PIL import Image, ImageDraw
+    from rationai.masks import write_big_tiff
+    from ratiopath.openslide import OpenSlide
+
+    with OpenSlide(slide_path) as slide:
+        level = slide.closest_level(mpp)
+        mpp_x, mpp_y = slide.slide_resolution(level)
+        base_width, base_height = slide.level_dimensions[0]
+        width, height = slide.level_dimensions[level]
+    scale_x, scale_y = width / base_width, height / base_height
+
+    mask = Image.new("L", size=(width, height), color=0)
+    draw = ImageDraw.Draw(mask)
+    for class_name, value in ANNOTATION_VALUES.items():
+        for polygon in annotations.get(class_name, []):
+            draw.polygon(
+                [(x * scale_x, y * scale_y) for x, y in polygon.exterior.coords],
+                fill=value,
+            )
+            for interior in polygon.interiors:
+                draw.polygon(
+                    [(x * scale_x, y * scale_y) for x, y in interior.coords], fill=0
+                )
+    del draw
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_big_tiff(
+        image=pyvips.Image.new_from_memory(
+            data=mask.tobytes(), width=width, height=height, bands=1, format="uchar"
+        ),
+        path=path,
+        mpp_x=mpp_x,
+        mpp_y=mpp_y,
+    )
+
+
 def write_mask(
     grid: np.ndarray,
     stride: int,
@@ -300,9 +356,14 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             mlflow.log_metric(f"regions_{stem}", len(regions))
 
             if name in annotation_paths:
-                scores = evaluate(
-                    polygons, load_qupath_annotations(annotation_paths[name])
+                annotations = load_qupath_annotations(annotation_paths[name])
+                write_annotation_mask(
+                    annotations,
+                    str(slide["path"]),
+                    config.annotation_mpp,
+                    out / "annotations" / name,
                 )
+                scores = evaluate(polygons, annotations)
                 scores["regions"] = len(regions)
                 for key, value in scores.items():
                     mlflow.log_metric(f"{key}_{stem}", value)

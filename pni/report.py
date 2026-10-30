@@ -35,6 +35,8 @@ TISSUE_CLASSES = [
     ("Other", "#7f7f7f"),
 ]
 CANDIDATE_COLOR = "#00e5ff"
+# Annotation mask values: 0 background, 128 Nerve, 255 PNI (pni.detect).
+ANNOTATION_COLORS = {"Nerve": "#00c853", "PNI": "#ff00ff"}
 
 
 def tissue_mask(run_id: str) -> Mask:
@@ -61,6 +63,18 @@ def candidate_mask(run_id: str) -> Mask:
         mask=[0, 1],
         opacity=0.6,
         visible=True,
+    )
+
+
+def annotation_mask(run_id: str) -> Mask:
+    return Mask(
+        "Pathologist annotations",
+        MlflowRun(run_id, "annotations"),
+        classes=3,
+        palette=["#000000", ANNOTATION_COLORS["Nerve"], ANNOTATION_COLORS["PNI"]],
+        breaks=[0.25, 0.75],
+        mask=[0, 1, 1],
+        opacity=0.5,
     )
 
 
@@ -101,7 +115,11 @@ def main() -> None:
 
     matrix = case_matrix(
         sorted(slide_map["wsi_path"]),
-        [candidate_mask(detection), tissue_mask(artifacts.prediction_run_id)],
+        [
+            candidate_mask(detection),
+            annotation_mask(detection),
+            tissue_mask(artifacts.prediction_run_id),
+        ],
         min_layers=2,
         flow=flow,
     )
@@ -119,9 +137,11 @@ def main() -> None:
             " at least three tiles: candidates for perineural invasion, not"
             " diagnoses. Larger regions were more often true invasion on the"
             " annotated slides. The 'Tissue prediction' layer (off on open) shows"
-            f" the underlying tile classes: {legend}. Slides -17 and -21 carry your"
-            " QuPath annotations, so their counts say how many annotated PNI and"
-            " nerve outlines a candidate touches; -23 and -25 are unannotated."
+            f" the underlying tile classes: {legend}. Slides -17 and -21 also have a"
+            " 'Pathologist annotations' layer (off on open) with your QuPath"
+            f" outlines, nerves {ANNOTATION_COLORS['Nerve']} and perineural invasion"
+            f" {ANNOTATION_COLORS['PNI']}; their card counts say how many of those"
+            " outlines a candidate touches. -23 and -25 are unannotated."
         ),
     )
     for session in matrix.sessions:

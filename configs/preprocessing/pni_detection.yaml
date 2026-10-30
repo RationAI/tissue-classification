@@ -4,6 +4,8 @@ nerve_class: Nerve
 epithelium_class: Epithelium
 radius: ???
 min_tiles: ???
+# Resolution of the rasterised annotation masks (display only).
+annotation_mpp: 2.0
 
 metadata:
   run_name: PNI detection ${dataset.name}
