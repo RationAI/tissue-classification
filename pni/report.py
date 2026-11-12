@@ -1,8 +1,9 @@
 """xOpat report of perineural invasion (PNI) candidates for the pathologist.
 
-One card per slide of the dataset: the slide, the PNI candidate regions of the
-detection run (shown on open) and the tissue class map of the prediction run they
-were derived from (off on open, toggled in the viewer's layer panel). The page is
+One card per slide of the dataset: the slide, the nerve side of the PNI
+candidate regions (shown on open), the full candidate regions, the pathologist's
+outlines and the tissue class map of the prediction run they were derived from
+(off on open, toggled in the viewer's layer panel). The page is
 written locally and not published anywhere.
 
 Needs only the MLflow tracking API (in-cluster, or tunnelled): the slides are
@@ -35,6 +36,7 @@ TISSUE_CLASSES = [
     ("Other", "#7f7f7f"),
 ]
 CANDIDATE_COLOR = "#00e5ff"
+REGION_COLOR = "#ff9100"
 # Annotation mask values: 0 background, 128 Nerve, 255 PNI (pni.detect).
 ANNOTATION_COLORS = {"Nerve": "#00c853", "PNI": "#ff00ff"}
 
@@ -54,15 +56,29 @@ def tissue_mask(run_id: str) -> Mask:
 
 
 def candidate_mask(run_id: str) -> Mask:
+    """Nerve tiles of the candidate regions: the invaded nerve to look at."""
     return Mask(
-        "PNI candidates",
-        MlflowRun(run_id, "masks"),
+        "PNI candidates (nerve)",
+        MlflowRun(run_id, "nerve_masks"),
         classes=2,
         palette=["#000000", CANDIDATE_COLOR],
         breaks=[0.5],
         mask=[0, 1],
         opacity=0.6,
         visible=True,
+    )
+
+
+def region_mask(run_id: str) -> Mask:
+    """Full candidate regions: both sides of the contact, whole tile footprints."""
+    return Mask(
+        "PNI candidate regions (nerve + epithelium)",
+        MlflowRun(run_id, "masks"),
+        classes=2,
+        palette=["#000000", REGION_COLOR],
+        breaks=[0.5],
+        mask=[0, 1],
+        opacity=0.5,
     )
 
 
@@ -79,14 +95,19 @@ def annotation_mask(run_id: str) -> Mask:
 
 
 def card_note(stem: str, regions: pd.DataFrame, metrics: dict[str, float]) -> str:
-    """Region count, and on annotated slides how many annotations they touch."""
-    note = f"{len(regions[regions['slide'].str.startswith(stem)])} candidate regions"
-    if f"pni_polygons_{stem}" in metrics:
+    """Candidate count, and on annotated slides how many annotations they touch.
+
+    Counts are of the nerve shapes, the layer shown on open.
+    """
+    slide_regions = regions[regions["slide"].str.startswith(stem)]
+    note = f"{int((slide_regions['n_nerve'] > 0).sum())} candidates"
+    m = "nerve_shape_"
+    if f"{m}pni_polygons_{stem}" in metrics:
         note += (
-            f" · annotated PNI touched {metrics[f'pni_hit_{stem}']:.0f}"
-            f"/{metrics[f'pni_polygons_{stem}']:.0f}"
-            f" · annotated nerves touched {metrics[f'nerve_hit_{stem}']:.0f}"
-            f"/{metrics[f'nerve_polygons_{stem}']:.0f}"
+            f" · annotated PNI touched {metrics[f'{m}pni_hit_{stem}']:.0f}"
+            f"/{metrics[f'{m}pni_polygons_{stem}']:.0f}"
+            f" · annotated nerves touched {metrics[f'{m}nerve_hit_{stem}']:.0f}"
+            f"/{metrics[f'{m}nerve_polygons_{stem}']:.0f}"
         )
     else:
         note += " · not annotated"
@@ -117,6 +138,7 @@ def main() -> None:
         sorted(slide_map["wsi_path"]),
         [
             candidate_mask(detection),
+            region_mask(detection),
             annotation_mask(detection),
             tissue_mask(artifacts.prediction_run_id),
         ],
@@ -132,11 +154,14 @@ def main() -> None:
             f" · predictions {artifacts.prediction_run_id[:8]}"
         ),
         preamble=(
-            "Cyan regions are where the tissue model predicts nerve and epithelium"
-            " within two tiles (about 110 µm) of each other, joined into regions of"
-            " at least three tiles: candidates for perineural invasion, not"
-            " diagnoses. Larger regions were more often true invasion on the"
-            " annotated slides. The 'Tissue prediction' layer (off on open) shows"
+            "Cyan areas are predicted nerve with predicted epithelium next to it"
+            " (tiles touching, centres at most about 110 µm apart per axis):"
+            " candidates for perineural invasion, not diagnoses. Contacts are"
+            " joined into regions of at least three tiles, and larger regions were"
+            " more often true invasion on the annotated slides. The"
+            f" 'PNI candidate regions' layer ({REGION_COLOR}, off on open) shows"
+            " the whole contact region including the epithelium side. The"
+            " 'Tissue prediction' layer (off on open) shows"
             f" the underlying tile classes: {legend}. Slides -17 and -21 also have a"
             " 'Pathologist annotations' layer (off on open) with your QuPath"
             f" outlines, nerves {ANNOTATION_COLORS['Nerve']} and perineural invasion"

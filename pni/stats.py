@@ -8,7 +8,8 @@ them over slides and write one CSV per table:
   Nerve and PNI outlines and outside both, the check that the tissue model sees
   nerve and epithelium where the outlines say they are.
 - ``region_labels`` / ``detection_summary``: what each candidate region touches,
-  and per slide how many annotated outlines the candidates reach.
+  per slide how many annotated outlines the candidates reach, and how well the
+  candidates' area matches the PNI outlines (area recall, Dice).
 - ``ranking``: precision and PNI recall of the ``k`` largest regions, since size
   rank is how the candidates are meant to be read.
 """
@@ -18,7 +19,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from shapely import STRtree
+from shapely import STRtree, unary_union
 from shapely.geometry.base import BaseGeometry
 
 from pni.annotations import NERVE, PNI, tile_coverage
@@ -95,6 +96,31 @@ def _touched(polygons: Sequence[BaseGeometry], targets: Sequence[Any]) -> int:
     return sum(bool(len(tree.query(t, "intersects"))) for t in targets)
 
 
+def area_overlap(
+    polygons: Sequence[BaseGeometry], targets: Sequence[Any]
+) -> dict[str, float]:
+    """Area recall, precision and Dice of the candidates' union against targets.
+
+    Precision and Dice count candidates on unannotated invasion as errors, so
+    they are lower bounds when the outlines are not exhaustive.
+    """
+    predicted = unary_union(list(polygons)) if polygons else None
+    target = unary_union(list(targets)) if targets else None
+    pred_area = predicted.area if predicted is not None else 0.0
+    target_area = target.area if target is not None else 0.0
+    inter = (
+        predicted.intersection(target).area
+        if predicted is not None and target is not None
+        else 0.0
+    )
+    total = pred_area + target_area
+    return {
+        "pni_area_recall": inter / target_area if target_area else np.nan,
+        "pni_area_precision": inter / pred_area if pred_area else np.nan,
+        "pni_dice": 2 * inter / total if total else np.nan,
+    }
+
+
 def detection_summary(
     regions: pd.DataFrame,
     polygons: Sequence[BaseGeometry],
@@ -127,6 +153,7 @@ def detection_summary(
             "regions_on_nerve": labels.count("Nerve"),
             "regions_elsewhere": labels.count("other"),
             "region_precision": labels.count("PNI") / len(labels) if labels else np.nan,
+            **area_overlap(polygons, pni),
         }
     )
     return row

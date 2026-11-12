@@ -12,6 +12,11 @@ Per slide the stage logs:
   (same as the prediction maps), 255 inside a candidate region and 0 elsewhere
 - ``regions/<slide stem>.geojson``: one level-0 polygon per region, rank and tile
   counts in the properties, importable into QuPath
+- ``nerve_masks/<slide file name>`` and ``nerve_regions/<slide stem>.geojson``:
+  the same regions reduced to their Nerve tiles, each drawn as its central
+  stride-sized square. The pathologist's PNI outlines enclose the invaded nerve,
+  so this is the shape shown for review; the full regions (both sides of the
+  contact, whole tile footprints) stay for comparison
 - ``regions.csv``: all regions of all slides
 - ``stats/*.csv``: summary tables from ``pni.stats``
 - ``annotations/<slide file name>``: on annotated slides, the QuPath Nerve (128)
@@ -153,6 +158,47 @@ def region_polygon(
     )
 
 
+def central_polygon(
+    gx: np.ndarray,
+    gy: np.ndarray,
+    stride: int,
+    downsample: float,
+) -> BaseGeometry:
+    """Level-0 union of the central stride-sized squares of tiles.
+
+    With tile extent ``2 * stride`` these squares are the tiles' central ROIs and
+    tile the plane without overlap, so the shape does not grow past the tiles'
+    centres the way full footprints do.
+    """
+    half = stride / 2
+    return unary_union(
+        [
+            box(
+                (x * stride + half) * downsample,
+                (y * stride + half) * downsample,
+                (x * stride + half + stride) * downsample,
+                (y * stride + half + stride) * downsample,
+            )
+            for x, y in zip(gx, gy, strict=True)
+        ]
+    )
+
+
+def central_grid(cells: np.ndarray) -> np.ndarray:
+    """Half-stride grid covered by the central stride-sized squares of ``cells``.
+
+    Cell ``(gx, gy)`` of the stride grid becomes half-stride cells
+    ``2 * g + 1`` and ``2 * g + 2`` on both axes.
+    """
+    grid = np.zeros((2 * cells.shape[0] + 2, 2 * cells.shape[1] + 2), dtype=bool)
+    for dy in (1, 2):
+        for dx in (1, 2):
+            grid[
+                dy : dy + 2 * cells.shape[0] : 2, dx : dx + 2 * cells.shape[1] : 2
+            ] |= cells
+    return grid
+
+
 def footprint_grid(labels: np.ndarray, stride: int, tile_extent: int) -> np.ndarray:
     """Binary stride-cell grid covered by the full footprint of any region tile.
 
@@ -256,21 +302,21 @@ def write_annotation_mask(
 
 def write_mask(
     grid: np.ndarray,
-    stride: int,
+    cell: int,
     slide: pd.Series,
     path: Path,
 ) -> None:
-    """Write a stride-cell grid as a 0/255 BigTIFF aligned with the tiling level."""
+    """Write a grid of ``cell``-pixel cells as a 0/255 BigTIFF on the tiling level."""
     from ml.callbacks.tiff_prediction_map_writer import _emit_mask
 
     # Footprints of edge tiles can reach past the slide; keep cells that start inside.
-    rows = -(-int(slide["extent_y"]) // stride)
-    cols = -(-int(slide["extent_x"]) // stride)
+    rows = -(-int(slide["extent_y"]) // cell)
+    cols = -(-int(slide["extent_x"]) // cell)
     grid = grid[:rows, :cols]
     _emit_mask(
         np.ascontiguousarray(np.where(grid, 255, 0).astype(np.uint8)),
-        stride,
-        stride,
+        cell,
+        cell,
         (int(slide["extent_x"]), int(slide["extent_y"])),
         0,
         path,
@@ -307,14 +353,21 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
         "detection": [],
         "ranking": [],
     }
+    shapes = {"region": "regions", "nerve": "nerve_regions"}
     totals: dict[str, float] = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
         out = Path(tmp_dir)
-        (out / "regions").mkdir()
+        for directory in shapes.values():
+            (out / directory).mkdir()
         for _, slide in slides.iterrows():
             name = Path(str(slide["path"])).name
             stride = int(slide["stride_x"])
             tile_extent = int(slide["tile_extent_x"])
+            if tile_extent != 2 * stride or stride % 2:
+                raise ValueError(
+                    f"{name}: nerve shapes need tile extent = 2 * stride (even),"
+                    f" got {tile_extent} / {stride}"
+                )
             downsample = float(slide["downsample"])
             tiles = predictions[predictions["slide_id"] == slide["id"]]
 
@@ -327,6 +380,21 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 region_polygon(r["gx"], r["gy"], stride, tile_extent, downsample)
                 for r in records
             ]
+            # Nerve side of each region. A region can lack Nerve tiles when its
+            # nerve partner is within the radius but not 8-connected to it; such
+            # regions have no nerve shape and are left out of the nerve views.
+            nerve_records = []
+            for r in records:
+                keep = nerve[r["gy"], r["gx"]]
+                if keep.any():
+                    nerve_records.append(
+                        {**r, "gx": r["gx"][keep], "gy": r["gy"][keep]}
+                    )
+            nerve_polygons = [
+                central_polygon(r["gx"], r["gy"], stride, downsample)
+                for r in nerve_records
+            ]
+            nerve_regions = regions[regions["n_nerve"] > 0].reset_index(drop=True)
 
             write_mask(
                 footprint_grid(labels, stride, tile_extent),
@@ -334,24 +402,35 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 slide,
                 out / "masks" / name,
             )
-            features = [
-                {
-                    "type": "Feature",
-                    "geometry": mapping(polygon),
-                    "properties": {
-                        "objectType": "annotation",
-                        "classification": {"name": "PNI candidate"},
-                        "rank": int(r["rank"]),
-                        "n_tiles": int(r["n_tiles"]),
-                        "n_nerve": int(r["n_nerve"]),
-                        "n_epithelium": int(r["n_epithelium"]),
-                    },
-                }
-                for r, polygon in zip(records, polygons, strict=True)
-            ]
+            write_mask(
+                central_grid((labels > 0) & nerve),
+                stride // 2,
+                slide,
+                out / "nerve_masks" / name,
+            )
             stem = name.removesuffix(".tiff").removesuffix(".tif")
-            with open(out / "regions" / f"{stem}.geojson", "w", encoding="utf-8") as f:
-                json.dump({"type": "FeatureCollection", "features": features}, f)
+            for shape, shape_records, shape_polygons in (
+                ("region", records, polygons),
+                ("nerve", nerve_records, nerve_polygons),
+            ):
+                features = [
+                    {
+                        "type": "Feature",
+                        "geometry": mapping(polygon),
+                        "properties": {
+                            "objectType": "annotation",
+                            "classification": {"name": "PNI candidate"},
+                            "rank": int(r["rank"]),
+                            "n_tiles": int(r["n_tiles"]),
+                            "n_nerve": int(r["n_nerve"]),
+                            "n_epithelium": int(r["n_epithelium"]),
+                        },
+                    }
+                    for r, polygon in zip(shape_records, shape_polygons, strict=True)
+                ]
+                path = out / shapes[shape] / f"{stem}.geojson"
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"type": "FeatureCollection", "features": features}, f)
 
             all_regions.append(
                 regions.drop(columns=["gx", "gy"]).assign(
@@ -363,6 +442,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 )
             )
             mlflow.log_metric(f"regions_{stem}", len(regions))
+            mlflow.log_metric(f"nerve_regions_{stem}", len(nerve_regions))
             tables["class_distribution"] += stats.class_distribution(
                 tiles, class_names, name
             )
@@ -377,24 +457,48 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                     class_names,
                     name,
                 )
-                tables["ranking"] += stats.ranking(
-                    regions, polygons, annotations, config.ranking_ks, name
-                )
+                for shape, shape_regions, shape_polygons in (
+                    ("region", regions, polygons),
+                    ("nerve", nerve_regions, nerve_polygons),
+                ):
+                    tables["ranking"] += [
+                        {"shape": shape, **row}
+                        for row in stats.ranking(
+                            shape_regions,
+                            shape_polygons,
+                            annotations,
+                            config.ranking_ks,
+                            name,
+                        )
+                    ]
                 write_annotation_mask(
                     annotations,
                     str(slide["path"]),
                     config.annotation_mpp,
                     out / "annotations" / name,
                 )
-                scores = evaluate(polygons, annotations)
-                scores["regions"] = len(regions)
-                for key, value in scores.items():
-                    mlflow.log_metric(f"{key}_{stem}", value)
-                    totals[key] = totals.get(key, 0) + value
+                for prefix, shape_regions, shape_polygons in (
+                    ("", regions, polygons),
+                    ("nerve_shape_", nerve_regions, nerve_polygons),
+                ):
+                    scores = evaluate(shape_polygons, annotations)
+                    scores["regions"] = len(shape_regions)
+                    for key, value in scores.items():
+                        mlflow.log_metric(f"{prefix}{key}_{stem}", value)
+                        totals[prefix + key] = totals.get(prefix + key, 0) + value
 
-            tables["detection"].append(
-                stats.detection_summary(regions, polygons, annotations, name)
-            )
+            for shape, shape_regions, shape_polygons in (
+                ("region", regions, polygons),
+                ("nerve", nerve_regions, nerve_polygons),
+            ):
+                tables["detection"].append(
+                    {
+                        "shape": shape,
+                        **stats.detection_summary(
+                            shape_regions, shape_polygons, annotations, name
+                        ),
+                    }
+                )
 
         pd.concat(all_regions, ignore_index=True).to_csv(
             out / "regions.csv", index=False
@@ -404,17 +508,22 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             pd.DataFrame(rows).to_csv(out / "stats" / f"{table}.csv", index=False)
         logger.log_artifacts(tmp_dir)
 
-    if totals.get("pni_polygons"):
-        mlflow.log_metric("pni_hit_rate", totals["pni_hit"] / totals["pni_polygons"])
-    if totals.get("nerve_polygons"):
-        mlflow.log_metric(
-            "nerve_hit_rate", totals["nerve_hit"] / totals["nerve_polygons"]
-        )
-    if totals.get("regions"):
-        mlflow.log_metric(
-            "annotated_regions_on_pni_rate",
-            totals["regions_on_pni"] / totals["regions"],
-        )
+    for prefix in ("", "nerve_shape_"):
+        if totals.get(f"{prefix}pni_polygons"):
+            mlflow.log_metric(
+                f"{prefix}pni_hit_rate",
+                totals[f"{prefix}pni_hit"] / totals[f"{prefix}pni_polygons"],
+            )
+        if totals.get(f"{prefix}nerve_polygons"):
+            mlflow.log_metric(
+                f"{prefix}nerve_hit_rate",
+                totals[f"{prefix}nerve_hit"] / totals[f"{prefix}nerve_polygons"],
+            )
+        if totals.get(f"{prefix}regions"):
+            mlflow.log_metric(
+                f"{prefix}annotated_regions_on_pni_rate",
+                totals[f"{prefix}regions_on_pni"] / totals[f"{prefix}regions"],
+            )
 
 
 if __name__ == "__main__":
