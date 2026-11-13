@@ -1,7 +1,7 @@
 """xOpat report of perineural invasion (PNI) candidates for the pathologist.
 
 One card per slide of the dataset, with Czech text for the pathologist: the
-slide, the nerve side of the PNI candidate regions coloured by display tier
+slide, the nerve side of the PNI candidate regions
 (shown on open), the full candidate regions, the pathologist's
 outlines and the tissue class map of the prediction run they were derived from
 (off on open, toggled in the viewer's layer panel). The page is
@@ -37,8 +37,7 @@ TISSUE_CLASSES = [
     ("Sval", "#8c564b", "hnědě"),
     ("Ostatní", "#7f7f7f", "tmavě šedě"),
 ]
-# Nerve mask values (pni.detect.TIER_VALUES): 85 rest, 170 next, 255 top.
-TIER_COLORS = ["#a7ffeb", "#00e5ff", "#ff1744"]
+CANDIDATE_COLOR = "#00e5ff"
 REGION_COLOR = "#ff9100"
 # Annotation mask values: 0 background, 128 Nerve, 255 PNI (pni.detect).
 ANNOTATION_COLORS = {"Nerve": "#00c853", "PNI": "#ff00ff"}
@@ -59,15 +58,14 @@ def tissue_mask(run_id: str) -> Mask:
 
 
 def candidate_mask(run_id: str) -> Mask:
-    """Nerve of the candidate regions, coloured by display tier."""
+    """Nerve of the candidate regions: the invaded nerve to look at."""
     return Mask(
         "Kandidáti PNI (nerv)",
         MlflowRun(run_id, "nerve_masks"),
-        classes=4,
-        palette=["#000000", *TIER_COLORS],
-        # Midpoints between 0, 85, 170 and 255 on the 0..1 scale.
-        breaks=[0.1667, 0.5, 0.8333],
-        mask=[0, 1, 1, 1],
+        classes=2,
+        palette=["#000000", CANDIDATE_COLOR],
+        breaks=[0.5],
+        mask=[0, 1],
         opacity=0.6,
         visible=True,
     )
@@ -156,14 +154,11 @@ def main() -> None:
             f" · predikce tkáně {artifacts.prediction_run_id[:8]}"
         ),
         preamble=(
-            "Vyznačení kandidáti na perineurální invazi jsou místa, která model"
-            " klasifikuje jako nerv a hned vedle nich (v sousední dlaždici, cca"
-            " 110 µm) jako epitel. Nejde o diagnózy. Zobrazuje se jen nervová"
-            " část kontaktu. Na každém skenu jsou kandidáti seřazeni podle velikosti"
-            " oblasti kontaktu, protože na anotovaných skenech byly větší oblasti"
-            " častěji skutečnou invazí: červeně je 10 největších, tyrkysově 11. až"
-            " 50., světle ostatní. Další vrstvy jsou při otevření vypnuté a zapínají"
-            " se v panelu vrstev: celé oblasti kontaktu včetně epitelové strany"
+            "Tyrkysově vyznačení kandidáti na perineurální invazi jsou místa, která"
+            " model klasifikuje jako nerv a hned vedle nich (v sousední dlaždici,"
+            " cca 110 µm) jako epitel. Nejde o diagnózy. Zobrazuje se jen nervová"
+            " část kontaktu. Další vrstvy jsou při otevření vypnuté a zapínají se"
+            " v panelu vrstev: celé oblasti kontaktu včetně epitelové strany"
             f" (oranžově), predikce tkáně ({legend}) a u skenů -17 a -21 Vaše"
             " anotace z QuPathu (nervy zeleně, PNI purpurově). Skeny -23 a -25"
             " anotované nejsou."

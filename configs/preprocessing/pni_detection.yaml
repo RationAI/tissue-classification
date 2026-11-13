@@ -6,9 +6,6 @@ radius: ???
 min_tiles: ???
 # Resolution of the rasterised annotation masks (display only).
 annotation_mpp: 2.0
-# Display tiers of the nerve mask: shown candidates 1..10 (largest first) are
-# tier 1, 11..50 tier 2, the rest tier 3.
-display_tiers: [10, 50]
 # Sizes of the top-k region lists scored in stats/ranking.csv.
 ranking_ks: [10, 20, 50, 100]
 
