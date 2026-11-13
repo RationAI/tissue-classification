@@ -1,7 +1,8 @@
 """xOpat report of perineural invasion (PNI) candidates for the pathologist.
 
-One card per slide of the dataset: the slide, the nerve side of the PNI
-candidate regions (shown on open), the full candidate regions, the pathologist's
+One card per slide of the dataset, with Czech text for the pathologist: the
+slide, the nerve side of the PNI candidate regions coloured by display tier
+(shown on open), the full candidate regions, the pathologist's
 outlines and the tissue class map of the prediction run they were derived from
 (off on open, toggled in the viewer's layer panel). The page is
 written locally and not published anywhere.
@@ -24,18 +25,20 @@ from report_fast import Mask, MlflowRun, Report, SlideGrid, case_matrix
 from report_fast.mlflow import Mlflow
 
 
-# Order and names of the probe's classes (collapse_alterations_to_other) and the
-# value each one has in the prediction maps: round(255 * (i + 1) / 7), 0 = no tile.
+# Order of the probe's classes (collapse_alterations_to_other), their Czech
+# label, colour and colour name, and the value each one has in the prediction
+# maps: round(255 * (i + 1) / 7), 0 = no tile.
 TISSUE_CLASSES = [
-    ("Nerve", "#ffd400"),
-    ("Blood", "#d62728"),
-    ("Connective-Tissue", "#e377c2"),
-    ("Fat", "#c7c7c7"),
-    ("Epithelium", "#1f77b4"),
-    ("Muscle", "#8c564b"),
-    ("Other", "#7f7f7f"),
+    ("Nerv", "#ffd400", "žlutě"),
+    ("Krev", "#d62728", "červeně"),
+    ("Vazivo", "#e377c2", "růžově"),
+    ("Tuk", "#c7c7c7", "šedě"),
+    ("Epitel", "#1f77b4", "modře"),
+    ("Sval", "#8c564b", "hnědě"),
+    ("Ostatní", "#7f7f7f", "tmavě šedě"),
 ]
-CANDIDATE_COLOR = "#00e5ff"
+# Nerve mask values (pni.detect.TIER_VALUES): 85 rest, 170 next, 255 top.
+TIER_COLORS = ["#a7ffeb", "#00e5ff", "#ff1744"]
 REGION_COLOR = "#ff9100"
 # Annotation mask values: 0 background, 128 Nerve, 255 PNI (pni.detect).
 ANNOTATION_COLORS = {"Nerve": "#00c853", "PNI": "#ff00ff"}
@@ -44,10 +47,10 @@ ANNOTATION_COLORS = {"Nerve": "#00c853", "PNI": "#ff00ff"}
 def tissue_mask(run_id: str) -> Mask:
     n = len(TISSUE_CLASSES)
     return Mask(
-        "Tissue prediction",
+        "Predikce tkáně",
         MlflowRun(run_id, "prediction_maps_tiff/pred"),
         classes=n + 1,
-        palette=["#000000", *(color for _, color in TISSUE_CLASSES)],
+        palette=["#000000", *(color for _, color, _ in TISSUE_CLASSES)],
         # Midpoints between the encoded values k / n, k = 0..n.
         breaks=[round((k + 0.5) / n, 4) for k in range(n)],
         mask=[0] + [1] * n,
@@ -56,14 +59,15 @@ def tissue_mask(run_id: str) -> Mask:
 
 
 def candidate_mask(run_id: str) -> Mask:
-    """Nerve tiles of the candidate regions: the invaded nerve to look at."""
+    """Nerve of the candidate regions, coloured by display tier."""
     return Mask(
-        "PNI candidates (nerve)",
+        "Kandidáti PNI (nerv)",
         MlflowRun(run_id, "nerve_masks"),
-        classes=2,
-        palette=["#000000", CANDIDATE_COLOR],
-        breaks=[0.5],
-        mask=[0, 1],
+        classes=4,
+        palette=["#000000", *TIER_COLORS],
+        # Midpoints between 0, 85, 170 and 255 on the 0..1 scale.
+        breaks=[0.1667, 0.5, 0.8333],
+        mask=[0, 1, 1, 1],
         opacity=0.6,
         visible=True,
     )
@@ -72,7 +76,7 @@ def candidate_mask(run_id: str) -> Mask:
 def region_mask(run_id: str) -> Mask:
     """Full candidate regions: both sides of the contact, whole tile footprints."""
     return Mask(
-        "PNI candidate regions (nerve + epithelium)",
+        "Celé oblasti kontaktu (nerv + epitel)",
         MlflowRun(run_id, "masks"),
         classes=2,
         palette=["#000000", REGION_COLOR],
@@ -84,7 +88,7 @@ def region_mask(run_id: str) -> Mask:
 
 def annotation_mask(run_id: str) -> Mask:
     return Mask(
-        "Pathologist annotations",
+        "Anotace patologa",
         MlflowRun(run_id, "annotations"),
         classes=3,
         palette=["#000000", ANNOTATION_COLORS["Nerve"], ANNOTATION_COLORS["PNI"]],
@@ -94,23 +98,22 @@ def annotation_mask(run_id: str) -> Mask:
     )
 
 
-def card_note(stem: str, regions: pd.DataFrame, metrics: dict[str, float]) -> str:
+def card_note(stem: str, metrics: dict[str, float]) -> str:
     """Candidate count, and on annotated slides how many annotations they touch.
 
     Counts are of the nerve shapes, the layer shown on open.
     """
-    slide_regions = regions[regions["slide"].str.startswith(stem)]
-    note = f"{int((slide_regions['n_nerve'] > 0).sum())} candidates"
+    note = f"{metrics[f'nerve_regions_{stem}']:.0f} kandidátů"
     m = "nerve_shape_"
     if f"{m}pni_polygons_{stem}" in metrics:
         note += (
-            f" · annotated PNI touched {metrics[f'{m}pni_hit_{stem}']:.0f}"
+            f" · zasaženo anotací PNI {metrics[f'{m}pni_hit_{stem}']:.0f}"
             f"/{metrics[f'{m}pni_polygons_{stem}']:.0f}"
-            f" · annotated nerves touched {metrics[f'{m}nerve_hit_{stem}']:.0f}"
+            f" · zasaženo anotací nervů {metrics[f'{m}nerve_hit_{stem}']:.0f}"
             f"/{metrics[f'{m}nerve_polygons_{stem}']:.0f}"
         )
     else:
-        note += " · not annotated"
+        note += " · bez anotací"
     return note
 
 
@@ -131,7 +134,6 @@ def main() -> None:
         slide_map = pd.read_csv(
             flow.download(artifacts.mapping_run_id, artifacts.mapping_filename, tmp)
         )
-        regions = pd.read_csv(flow.download(detection, "regions.csv", tmp))
     metrics = flow.metrics(detection)
 
     matrix = case_matrix(
@@ -146,34 +148,32 @@ def main() -> None:
         flow=flow,
     )
 
-    legend = ", ".join(f"{name} {color}" for name, color in TISSUE_CLASSES)
+    legend = ", ".join(f"{name} {color}" for name, _, color in TISSUE_CLASSES)
     report = Report(
-        title="Perineural invasion candidates · prostate case 2025_01403",
+        title="Kandidáti na perineurální invazi · prostata, případ 2025_01403",
         subtitle=(
-            f"{len(matrix.sessions)} slides · detection run {detection[:8]}"
-            f" · predictions {artifacts.prediction_run_id[:8]}"
+            f"{len(matrix.sessions)} skeny · detekce {detection[:8]}"
+            f" · predikce tkáně {artifacts.prediction_run_id[:8]}"
         ),
         preamble=(
-            "Cyan areas are predicted nerve with predicted epithelium next to it"
-            " (tiles touching, centres at most about 110 µm apart per axis):"
-            " candidates for perineural invasion, not diagnoses. Contacts are"
-            " joined into regions of at least three tiles, and larger regions were"
-            " more often true invasion on the annotated slides. The"
-            f" 'PNI candidate regions' layer ({REGION_COLOR}, off on open) shows"
-            " the whole contact region including the epithelium side. The"
-            " 'Tissue prediction' layer (off on open) shows"
-            f" the underlying tile classes: {legend}. Slides -17 and -21 also have a"
-            " 'Pathologist annotations' layer (off on open) with your QuPath"
-            f" outlines, nerves {ANNOTATION_COLORS['Nerve']} and perineural invasion"
-            f" {ANNOTATION_COLORS['PNI']}; their card counts say how many of those"
-            " outlines a candidate touches. -23 and -25 are unannotated."
+            "Vyznačení kandidáti na perineurální invazi jsou místa, která model"
+            " klasifikuje jako nerv a hned vedle nich (v sousední dlaždici, cca"
+            " 110 µm) jako epitel. Nejde o diagnózy. Zobrazuje se jen nervová"
+            " část kontaktu. Na každém skenu jsou kandidáti seřazeni podle velikosti"
+            " oblasti kontaktu, protože na anotovaných skenech byly větší oblasti"
+            " častěji skutečnou invazí: červeně je 10 největších, tyrkysově 11. až"
+            " 50., světle ostatní. Další vrstvy jsou při otevření vypnuté a zapínají"
+            " se v panelu vrstev: celé oblasti kontaktu včetně epitelové strany"
+            f" (oranžově), predikce tkáně ({legend}) a u skenů -17 a -21 Vaše"
+            " anotace z QuPathu (nervy zeleně, PNI purpurově). Skeny -23 a -25"
+            " anotované nejsou."
         ),
     )
     # Narrow columns keep all four slides in one row on a laptop screen.
     grid = SlideGrid(min_width=180, card={"thumbnail_size": 256})
     for session in matrix.sessions:
         stem = session.names[0]
-        grid.add(session, note=card_note(stem, regions, metrics))
+        grid.add(session, note=card_note(stem, metrics))
     report.add(grid)
 
     path = report.write(args.output)

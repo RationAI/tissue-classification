@@ -18,7 +18,11 @@ Per slide the stage logs:
   enclose the invaded nerve, so this is the shape shown for review. It is taken
   from the same fused map the report shows as the tissue layer, so it sits on
   that map's Nerve cells exactly; the full regions (both sides of the contact,
-  whole tile footprints) stay for comparison
+  whole tile footprints) stay for comparison. The nerve mask encodes the
+  candidate's display tier: by position among the slide's shown candidates
+  (largest region first), the first ``display_tiers[0]`` are 255, those up to
+  ``display_tiers[1]`` 170 and the rest 85, so the report can tell the
+  candidates most worth a look from the rest
 - ``regions.csv``: all regions of all slides
 - ``stats/*.csv``: summary tables from ``pni.stats``
 - ``annotations/<slide file name>``: on annotated slides, the QuPath Nerve (128)
@@ -333,13 +337,25 @@ def write_annotation_mask(
     )
 
 
+#: Nerve mask value of each display tier, best first; background is 0.
+TIER_VALUES = (255, 170, 85)
+
+
+def display_tiers(n: int, bounds: list[int]) -> np.ndarray:
+    """Tier index (0 = best) of the first ``n`` candidates in display order."""
+    return np.searchsorted(np.asarray(bounds), np.arange(n), side="right")
+
+
 def write_mask(
     grid: np.ndarray,
     cell: int,
     slide: pd.Series,
     path: Path,
 ) -> None:
-    """Write a grid of ``cell``-pixel cells as a 0/255 BigTIFF on the tiling level."""
+    """Write a grid of ``cell``-pixel cells as a uint8 BigTIFF on the tiling level.
+
+    Boolean grids are written as 0/255, integer grids as they are.
+    """
     from ml.callbacks.tiff_prediction_map_writer import _emit_mask
 
     # Footprints of edge tiles can reach past the slide; keep cells that start inside.
@@ -347,7 +363,11 @@ def write_mask(
     cols = -(-int(slide["extent_x"]) // cell)
     grid = grid[:rows, :cols]
     _emit_mask(
-        np.ascontiguousarray(np.where(grid, 255, 0).astype(np.uint8)),
+        np.ascontiguousarray(
+            np.where(grid, 255, 0).astype(np.uint8)
+            if grid.dtype == bool
+            else grid.astype(np.uint8)
+        ),
         cell,
         cell,
         (int(slide["extent_x"]), int(slide["extent_y"])),
@@ -441,6 +461,11 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                         cell_polygon(cell_x[own], cell_y[own], stride, downsample)
                     )
             nerve_ranks = [r["rank"] for r in nerve_records]
+            tiers = display_tiers(len(nerve_records), list(config.display_tiers))
+            tier_value = np.zeros(int(cells.max()) + 1, dtype=np.uint8)
+            for r, tier in zip(nerve_records, tiers, strict=True):
+                r["tier"] = int(tier) + 1
+                tier_value[r["rank"]] = TIER_VALUES[tier]
             nerve_regions = regions[regions["rank"].isin(nerve_ranks)].reset_index(
                 drop=True
             )
@@ -451,7 +476,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 slide,
                 out / "masks" / name,
             )
-            write_mask(cells > 0, stride, slide, out / "nerve_masks" / name)
+            write_mask(tier_value[cells], stride, slide, out / "nerve_masks" / name)
             stem = name.removesuffix(".tiff").removesuffix(".tif")
             for shape, shape_records, shape_polygons in (
                 ("region", records, polygons),
@@ -463,7 +488,11 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                         "geometry": mapping(polygon),
                         "properties": {
                             "objectType": "annotation",
-                            "classification": {"name": "PNI candidate"},
+                            "classification": {
+                                "name": f"PNI candidate tier {r['tier']}"
+                                if "tier" in r
+                                else "PNI candidate"
+                            },
                             "rank": int(r["rank"]),
                             "n_tiles": int(r["n_tiles"]),
                             "n_nerve": int(r["n_nerve"]),
