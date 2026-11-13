@@ -13,10 +13,12 @@ Per slide the stage logs:
 - ``regions/<slide stem>.geojson``: one level-0 polygon per region, rank and tile
   counts in the properties, importable into QuPath
 - ``nerve_masks/<slide file name>`` and ``nerve_regions/<slide stem>.geojson``:
-  the same regions reduced to their Nerve tiles, each drawn as its central
-  stride-sized square. The pathologist's PNI outlines enclose the invaded nerve,
-  so this is the shape shown for review; the full regions (both sides of the
-  contact, whole tile footprints) stay for comparison
+  the nerve of each region: cells of the prediction run's tissue map that are
+  Nerve and lie under the region's Nerve tiles. The pathologist's PNI outlines
+  enclose the invaded nerve, so this is the shape shown for review. It is taken
+  from the same fused map the report shows as the tissue layer, so it sits on
+  that map's Nerve cells exactly; the full regions (both sides of the contact,
+  whole tile footprints) stay for comparison
 - ``regions.csv``: all regions of all slides
 - ``stats/*.csv``: summary tables from ``pni.stats``
 - ``annotations/<slide file name>``: on annotated slides, the QuPath Nerve (128)
@@ -158,45 +160,76 @@ def region_polygon(
     )
 
 
-def central_polygon(
+def cell_polygon(
     gx: np.ndarray,
     gy: np.ndarray,
     stride: int,
     downsample: float,
 ) -> BaseGeometry:
-    """Level-0 union of the central stride-sized squares of tiles.
-
-    With tile extent ``2 * stride`` these squares are the tiles' central ROIs and
-    tile the plane without overlap, so the shape does not grow past the tiles'
-    centres the way full footprints do.
-    """
-    half = stride / 2
+    """Level-0 union of stride grid cells."""
     return unary_union(
         [
             box(
-                (x * stride + half) * downsample,
-                (y * stride + half) * downsample,
-                (x * stride + half + stride) * downsample,
-                (y * stride + half + stride) * downsample,
+                x * stride * downsample,
+                y * stride * downsample,
+                (x + 1) * stride * downsample,
+                (y + 1) * stride * downsample,
             )
             for x, y in zip(gx, gy, strict=True)
         ]
     )
 
 
-def central_grid(cells: np.ndarray) -> np.ndarray:
-    """Half-stride grid covered by the central stride-sized squares of ``cells``.
+def nerve_cells(
+    labels: np.ndarray,
+    nerve: np.ndarray,
+    map_nerve: np.ndarray,
+    stride: int,
+    tile_extent: int,
+) -> np.ndarray:
+    """Region rank per stride cell of the nerve shape, 0 elsewhere.
 
-    Cell ``(gx, gy)`` of the stride grid becomes half-stride cells
-    ``2 * g + 1`` and ``2 * g + 2`` on both axes.
+    A cell belongs to a region's nerve when the fused tissue map calls it Nerve
+    and the footprint of one of the region's Nerve tiles covers it. Per-tile
+    argmax and the fused map can disagree (the map sums the probabilities of all
+    tiles over a cell), so a Nerve tile whose cells the map gives to another class
+    adds nothing.
+
+    Args:
+        labels: Region rank per tile grid cell, from ``find_regions``.
+        nerve: Tiles predicted Nerve.
+        map_nerve: Cells the fused tissue map calls Nerve, on the same grid.
+        stride: Tiling stride in level pixels.
+        tile_extent: Tile size in level pixels, a multiple of ``stride``.
     """
-    grid = np.zeros((2 * cells.shape[0] + 2, 2 * cells.shape[1] + 2), dtype=bool)
-    for dy in (1, 2):
-        for dx in (1, 2):
-            grid[
-                dy : dy + 2 * cells.shape[0] : 2, dx : dx + 2 * cells.shape[1] : 2
-            ] |= cells
-    return grid
+    span = tile_extent // stride
+    ranks = np.where(nerve, labels, 0)
+    shape = (ranks.shape[0] + span - 1, ranks.shape[1] + span - 1)
+    out = np.zeros(shape, dtype=np.int32)
+    for dy in range(span):
+        for dx in range(span):
+            window = out[dy : dy + ranks.shape[0], dx : dx + ranks.shape[1]]
+            # Overlapping footprints of two regions: keep the better (lower) rank.
+            take = (ranks > 0) & ((window == 0) | (ranks < window))
+            window[take] = ranks[take]
+    rows = min(shape[0], map_nerve.shape[0])
+    cols = min(shape[1], map_nerve.shape[1])
+    out = out[:rows, :cols]
+    out[~map_nerve[:rows, :cols]] = 0
+    return out
+
+
+def read_map_nerve(path: str, nerve_value: int, stride: int) -> np.ndarray:
+    """Cells of a tissue map TIFF that hold ``nerve_value``.
+
+    The map is constant over each stride cell, so one pixel per cell suffices.
+    """
+    import pyvips
+
+    image = pyvips.Image.new_from_file(path, access="sequential")
+    cells = image.extract_band(0).subsample(stride, stride)
+    data = np.frombuffer(cells.write_to_memory(), dtype=np.uint8)
+    return data.reshape(cells.height, cells.width) == nerve_value
 
 
 def footprint_grid(labels: np.ndarray, stride: int, tile_extent: int) -> np.ndarray:
@@ -345,6 +378,11 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     nerve_index = int(config.class_indices[config.nerve_class])
     epithelium_index = int(config.class_indices[config.epithelium_class])
     class_names = sorted(config.class_indices, key=lambda c: config.class_indices[c])
+    # Value of Nerve in the prediction maps: round(255 * (i + 1) / n), as written
+    # by ml.callbacks.tiff_prediction_map_writer.
+    from ml.callbacks.tiff_prediction_map_writer import _spread_lut
+
+    nerve_value = int(_spread_lut(len(class_names))[nerve_index])
 
     all_regions = []
     tables: dict[str, list[dict[str, Any]]] = {
@@ -363,11 +401,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             name = Path(str(slide["path"])).name
             stride = int(slide["stride_x"])
             tile_extent = int(slide["tile_extent_x"])
-            if tile_extent != 2 * stride or stride % 2:
-                raise ValueError(
-                    f"{name}: nerve shapes need tile extent = 2 * stride (even),"
-                    f" got {tile_extent} / {stride}"
-                )
             downsample = float(slide["downsample"])
             tiles = predictions[predictions["slide_id"] == slide["id"]]
 
@@ -380,21 +413,37 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 region_polygon(r["gx"], r["gy"], stride, tile_extent, downsample)
                 for r in records
             ]
-            # Nerve side of each region. A region can lack Nerve tiles when its
-            # nerve partner is within the radius but not 8-connected to it; such
-            # regions have no nerve shape and are left out of the nerve views.
-            nerve_records = []
+            # Nerve of each region, on the fused tissue map's cells. A region has
+            # none when it lacks Nerve tiles (its nerve partner is within the
+            # radius but not 8-connected) or when the map gives their cells to
+            # other classes; such regions are left out of the nerve views.
+            map_path = download_artifacts(
+                run_id=artifacts.prediction_run_id,
+                artifact_path=f"prediction_maps_tiff/pred/{name}",
+                dst_path=tmp_dir + "/maps",
+            )
+            cells = nerve_cells(
+                labels,
+                nerve,
+                read_map_nerve(map_path, nerve_value, stride),
+                stride,
+                tile_extent,
+            )
+            Path(map_path).unlink()
+            cell_y, cell_x = np.nonzero(cells)
+            cell_rank = cells[cell_y, cell_x]
+            nerve_records, nerve_polygons = [], []
             for r in records:
-                keep = nerve[r["gy"], r["gx"]]
-                if keep.any():
-                    nerve_records.append(
-                        {**r, "gx": r["gx"][keep], "gy": r["gy"][keep]}
+                own = cell_rank == r["rank"]
+                if own.any():
+                    nerve_records.append({**r, "n_nerve_cells": int(own.sum())})
+                    nerve_polygons.append(
+                        cell_polygon(cell_x[own], cell_y[own], stride, downsample)
                     )
-            nerve_polygons = [
-                central_polygon(r["gx"], r["gy"], stride, downsample)
-                for r in nerve_records
-            ]
-            nerve_regions = regions[regions["n_nerve"] > 0].reset_index(drop=True)
+            nerve_ranks = [r["rank"] for r in nerve_records]
+            nerve_regions = regions[regions["rank"].isin(nerve_ranks)].reset_index(
+                drop=True
+            )
 
             write_mask(
                 footprint_grid(labels, stride, tile_extent),
@@ -402,12 +451,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 slide,
                 out / "masks" / name,
             )
-            write_mask(
-                central_grid((labels > 0) & nerve),
-                stride // 2,
-                slide,
-                out / "nerve_masks" / name,
-            )
+            write_mask(cells > 0, stride, slide, out / "nerve_masks" / name)
             stem = name.removesuffix(".tiff").removesuffix(".tif")
             for shape, shape_records, shape_polygons in (
                 ("region", records, polygons),
@@ -443,6 +487,14 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             )
             mlflow.log_metric(f"regions_{stem}", len(regions))
             mlflow.log_metric(f"nerve_regions_{stem}", len(nerve_regions))
+            # Share of the Nerve tiles' footprint that the fused map calls Nerve.
+            footprint = nerve_cells(
+                labels, nerve, np.ones(cells.shape, dtype=bool), stride, tile_extent
+            )
+            mlflow.log_metric(
+                f"nerve_map_agreement_{stem}",
+                (cells > 0).sum() / max(int((footprint > 0).sum()), 1),
+            )
             tables["class_distribution"] += stats.class_distribution(
                 tiles, class_names, name
             )
