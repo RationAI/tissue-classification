@@ -57,6 +57,33 @@ def tissue_mask(run_id: str) -> Mask:
     )
 
 
+def detector_mask(run_id: str, class_name: str) -> Mask:
+    """One class of the fused tissue map: the cells the detection used as it."""
+    labels = [name for name, _, _ in TISSUE_CLASSES]
+    n = len(TISSUE_CLASSES)
+    index = labels.index(class_name)
+    return Mask(
+        f"Detektor: {class_name.lower()}",
+        MlflowRun(run_id, "prediction_maps_tiff/pred"),
+        classes=n + 1,
+        palette=["#000000", *(color for _, color, _ in TISSUE_CLASSES)],
+        breaks=[round((k + 0.5) / n, 4) for k in range(n)],
+        mask=[0] + [int(i == index) for i in range(n)],
+        opacity=0.5,
+    )
+
+
+def probability_mask(run_id: str, class_name: str, folder: str) -> Mask:
+    """Fused probability of one class, drawn as a heatmap of its colour."""
+    color = next(c for name, c, _ in TISSUE_CLASSES if name == class_name)
+    return Mask(
+        f"Pravděpodobnost: {class_name.lower()}",
+        MlflowRun(run_id, f"prediction_maps_tiff/prob/{folder}"),
+        color=color,
+        opacity=0.7,
+    )
+
+
 def candidate_mask(run_id: str) -> Mask:
     """Nerve of the candidate regions: the invaded nerve to look at."""
     return Mask(
@@ -133,14 +160,19 @@ def main() -> None:
             flow.download(artifacts.mapping_run_id, artifacts.mapping_filename, tmp)
         )
     metrics = flow.metrics(detection)
+    predictions = artifacts.prediction_run_id
 
     matrix = case_matrix(
         sorted(slide_map["wsi_path"]),
         [
             candidate_mask(detection),
+            detector_mask(predictions, "Nerv"),
+            detector_mask(predictions, "Epitel"),
+            probability_mask(predictions, "Nerv", "Nerve"),
+            probability_mask(predictions, "Epitel", "Epithelium"),
             region_mask(detection),
             annotation_mask(detection),
-            tissue_mask(artifacts.prediction_run_id),
+            tissue_mask(predictions),
         ],
         min_layers=2,
         flow=flow,
@@ -158,7 +190,12 @@ def main() -> None:
             " model klasifikuje jako nerv a hned vedle nich (v sousední dlaždici,"
             " cca 110 µm) jako epitel. Nejde o diagnózy. Zobrazuje se jen nervová"
             " část kontaktu. Další vrstvy jsou při otevření vypnuté a zapínají se"
-            " v panelu vrstev: celé oblasti kontaktu včetně epitelové strany"
+            " v panelu vrstev. Pro rozbor chyb: 'Detektor: nerv' (žlutě) a"
+            " 'Detektor: epitel' (modře) ukazují, kde model danou tkáň určil a"
+            " detekce s ní počítala; 'Pravděpodobnost: nerv / epitel' ukazuje, jak"
+            " si tím model byl jistý (sytější barva = vyšší pravděpodobnost), takže"
+            " je vidět i tkáň, kterou model téměř určil jinak. Dále celé oblasti"
+            " kontaktu včetně epitelové strany"
             f" (oranžově), predikce tkáně ({legend}) a u skenů -17 a -21 Vaše"
             " anotace z QuPathu (nervy zeleně, PNI purpurově). Skeny -23 a -25"
             " anotované nejsou."
