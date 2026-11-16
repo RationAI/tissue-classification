@@ -1,10 +1,10 @@
 """xOpat report of perineural invasion (PNI) candidates for the pathologist.
 
 One card per slide of the dataset, with Czech text for the pathologist: the
-slide, the nerve side of the PNI candidate regions
-(shown on open), the full candidate regions, the pathologist's
-outlines and the tissue class map of the prediction run they were derived from
-(off on open, toggled in the viewer's layer panel). The page is
+slide, the nerve side of the PNI candidate regions (shown on open), the nerve
+and epithelium detections and probabilities of the prediction run they were
+derived from and the pathologist's outlines (off on open, toggled in the
+viewer's layer panel). The page is
 written locally and not published anywhere.
 
 Needs only the MLflow tracking API (in-cluster, or tunnelled): the slides are
@@ -26,8 +26,8 @@ from report_fast.mlflow import Mlflow
 
 
 # Order of the probe's classes (collapse_alterations_to_other), their Czech
-# label, colour and colour name, and the value each one has in the prediction
-# maps: round(255 * (i + 1) / 7), 0 = no tile.
+# label and colour, and the value each one has in the prediction maps:
+# round(255 * (i + 1) / 7), 0 = no tile.
 TISSUE_CLASSES = [
     ("Nerv", "#ffd400", "žlutě"),
     ("Krev", "#d62728", "červeně"),
@@ -38,23 +38,8 @@ TISSUE_CLASSES = [
     ("Ostatní", "#7f7f7f", "tmavě šedě"),
 ]
 CANDIDATE_COLOR = "#00e5ff"
-REGION_COLOR = "#ff9100"
 # Annotation mask values: 0 background, 128 Nerve, 255 PNI (pni.detect).
 ANNOTATION_COLORS = {"Nerve": "#00c853", "PNI": "#ff00ff"}
-
-
-def tissue_mask(run_id: str) -> Mask:
-    n = len(TISSUE_CLASSES)
-    return Mask(
-        "Predikce tkáně",
-        MlflowRun(run_id, "prediction_maps_tiff/pred"),
-        classes=n + 1,
-        palette=["#000000", *(color for _, color, _ in TISSUE_CLASSES)],
-        # Midpoints between the encoded values k / n, k = 0..n.
-        breaks=[round((k + 0.5) / n, 4) for k in range(n)],
-        mask=[0] + [1] * n,
-        opacity=0.5,
-    )
 
 
 def detector_mask(run_id: str, class_name: str) -> Mask:
@@ -95,19 +80,6 @@ def candidate_mask(run_id: str) -> Mask:
         mask=[0, 1],
         opacity=0.6,
         visible=True,
-    )
-
-
-def region_mask(run_id: str) -> Mask:
-    """Full candidate regions: both sides of the contact, whole tile footprints."""
-    return Mask(
-        "Celé oblasti kontaktu (nerv + epitel)",
-        MlflowRun(run_id, "masks"),
-        classes=2,
-        palette=["#000000", REGION_COLOR],
-        breaks=[0.5],
-        mask=[0, 1],
-        opacity=0.5,
     )
 
 
@@ -170,15 +142,12 @@ def main() -> None:
             detector_mask(predictions, "Epitel"),
             probability_mask(predictions, "Nerv", "Nerve"),
             probability_mask(predictions, "Epitel", "Epithelium"),
-            region_mask(detection),
             annotation_mask(detection),
-            tissue_mask(predictions),
         ],
         min_layers=2,
         flow=flow,
     )
 
-    legend = ", ".join(f"{name} {color}" for name, _, color in TISSUE_CLASSES)
     report = Report(
         title="Kandidáti na perineurální invazi · prostata, případ 2025_01403",
         subtitle=(
@@ -194,10 +163,8 @@ def main() -> None:
             " 'Detektor: epitel' (modře) ukazují, kde model danou tkáň určil a"
             " detekce s ní počítala; 'Pravděpodobnost: nerv / epitel' ukazuje, jak"
             " si tím model byl jistý (sytější barva = vyšší pravděpodobnost), takže"
-            " je vidět i tkáň, kterou model téměř určil jinak. Dále celé oblasti"
-            " kontaktu včetně epitelové strany"
-            f" (oranžově), predikce tkáně ({legend}) a u skenů -17 a -21 Vaše"
-            " anotace z QuPathu (nervy zeleně, PNI purpurově). Skeny -23 a -25"
+            " je vidět i tkáň, kterou model téměř určil jinak. U skenů -17 a -21"
+            " jsou také Vaše anotace z QuPathu (nervy zeleně, PNI purpurově). Skeny -23 a -25"
             " anotované nejsou."
         ),
     )
