@@ -326,6 +326,10 @@ class _ClassVoteAssembler:
             self._acc[:, y0:y1, x0:x1] += prob[:, None, None]
             self._count[y0:y1, x0:x1] += 1
 
+    def class_indices(self) -> tuple[np.ndarray, np.ndarray]:
+        """Per-cell argmax class index and a mask of cells covered by any tile."""
+        return self._acc.argmax(0).numpy(), self._count.numpy() > 0
+
     def labels(self, background_value: int = 0) -> np.ndarray:
         """Encode prediction labels like ``remap_annotation_masks``.
 

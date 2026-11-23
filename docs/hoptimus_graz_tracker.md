@@ -30,8 +30,8 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 | 8 | Final + test for H0 (LBFGS) | must | todo | pick weight decay by `validation/f1_macro` |
 | 9 | Comparison Virchow2 vs H0 on our test set | must | todo | macro F1, per-class F1, confusion matrix, per-slide; same tiles/folds/test split/thresholds |
 | 9b | + ProvGigaPath in the comparison | nice | todo | results already exist |
-| 10 | Export linear heads (ckpt → safetensors + json) | must | todo | for Graz, no MLflow there |
-| 11 | Graz CLI: inference (manifest → mask → tiles → embed → classify → maps) | must | todo | see design below |
+| 10 | Export linear heads (ckpt → safetensors + json) | must | script ready | `python -m inference.export_head`; Virchow2 head = LBFGS final run `a0ec1995d1b1472785d30ccbe15e84ef` (same as test/predict configs); must run where MLflow is reachable |
+| 11 | Graz CLI: inference (slides → mask → tiles → embed → classify → maps) | must | ✅ implemented | `python -m inference predict`, see `inference/README.md`; smoke-tested end-to-end on a synthetic pyramid (dummy model/head, stubbed tissue mask) — not yet on a real slide |
 | 11b | Graz CLI: evaluation vs GT + HTML report | must | todo | needs 12 |
 | 11c | Graz CLI: GeoJSON export of predictions | should | todo | for QuPath review; HALO later |
 | 12 | GT class mapping Graz → our classes | must | todo | Graz annotations are more detailed, classes must be merged; needs the sample GeoJSONs (path: _TODO_) |
@@ -98,3 +98,6 @@ manifest.csv ─► tissue-mask ─► tile ─► embed[model] ─► classify[
 - 2026-11-23: Parity test PASS (cosine ≈ 1.0).
 - 2026-11-23: H-Optimus-0 embedding job submitted.
 - 2026-11-23: Graz: GPU is V100 32 GB; sample GT GeoJSONs received, classes more detailed than ours.
+- 2026-11-23: Graz sample GT analysed: QuPath GeoJSON (`classification.name`), layered (coarse gland/no-gland + detailed); 40–67 % of annotated area maps to our classes, usable tiles 77–96 % Other; Fat exists in other slides (label name TBD).
+- 2026-11-23: `inference embed` added so Graz can compute embeddings (both models) before heads exist.
+- 2026-11-23: Inference CLI (`inference/`) implemented: tissue mask, tiles, embeddings (cached), head, class-map TIFF, overlay PNG, summary.csv, run.json.
