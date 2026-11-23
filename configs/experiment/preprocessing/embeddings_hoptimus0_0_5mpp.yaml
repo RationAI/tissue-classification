@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - /data: dataset
+  - _self_
+
+# H-Optimus-0 is not deployed on the model service; embed on the job's GPU.
+model: h-optimus-0
+backend: local

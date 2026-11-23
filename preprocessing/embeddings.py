@@ -53,6 +53,41 @@ class EmbedTiles:
         return row
 
 
+class LocalEmbedTiles:
+    """Ray Data batch UDF embedding tiles with a foundation model on a local GPU.
+
+    Produces the same columns as the model-service path (``slide_id, x, y,
+    embedding``), with ``embedding`` as a plain Arrow list column so the
+    downstream loader in ``ml/data/datasets/embedding_tiles.py`` reads it the
+    same way.
+    """
+
+    def __init__(self, model: str) -> None:
+        from preprocessing.foundation_models import FoundationModel
+
+        self.model = FoundationModel(model)
+
+    def __call__(self, batch: dict[str, np.ndarray]) -> pa.Table:
+        tiles = batch["tile"]
+        if tiles.dtype == object:
+            tiles = np.stack(list(tiles))
+        embeddings = self.model.embed(tiles)
+
+        n, dim = embeddings.shape
+        embedding_col = pa.ListArray.from_arrays(
+            pa.array(np.arange(0, (n + 1) * dim, dim, dtype=np.int32)),
+            pa.array(embeddings.reshape(-1), type=pa.float32()),
+        )
+        return pa.table(
+            {
+                "slide_id": batch["slide_id"],
+                "x": batch["x"],
+                "y": batch["y"],
+                "embedding": embedding_col,
+            }
+        )
+
+
 def select_slide_budget(
     tiles_dataset: pads.Dataset,
     row_filter: pads.Expression | None,
@@ -123,6 +158,20 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
     tile_filter_column = config.get("tile_filter_column")
     slide_sample_max_tiles = config.get("slide_sample_max_tiles")
     slide_sample_seed = int(config.get("slide_sample_seed", 0))
+    backend = config.get("backend", "server")
+    if backend not in {"server", "local"}:
+        raise ValueError(f"backend must be 'server' or 'local', got {backend!r}")
+    if backend == "local":
+        from preprocessing.foundation_models import get_spec
+
+        spec = get_spec(config.model)
+        logger.log_hyperparams(
+            {
+                "hf_repo": spec.hf_repo,
+                "embedding_dim": spec.embedding_dim,
+                "autocast_dtype": "float16",
+            }
+        )
 
     for name in config.get("splits", ["train", "test"]):
         split_folder = Path(
@@ -210,16 +259,26 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             memory=4 * 1024**3,
         )
         ds = ds.drop_columns(["path", "level", "tile_extent_x", "tile_extent_y"])
-        ds = ds.map(
-            EmbedTiles,  # pyright: ignore[reportArgumentType]
-            fn_constructor_args=(config.model, config.concurrency),
-            compute=ray.data.ActorPoolStrategy(
-                min_size=4,
-                max_size=4,
-                max_tasks_in_flight_per_actor=max(1, config.concurrency // 4),
-            ),
-            max_concurrency=config.concurrency,
-        )
+        if backend == "server":
+            ds = ds.map(
+                EmbedTiles,  # pyright: ignore[reportArgumentType]
+                fn_constructor_args=(config.model, config.concurrency),
+                compute=ray.data.ActorPoolStrategy(
+                    min_size=4,
+                    max_size=4,
+                    max_tasks_in_flight_per_actor=max(1, config.concurrency // 4),
+                ),
+                max_concurrency=config.concurrency,
+            )
+        else:
+            ds = ds.map_batches(
+                LocalEmbedTiles,  # pyright: ignore[reportArgumentType]
+                fn_constructor_args=(config.model,),
+                batch_size=config.local.batch_size,
+                batch_format="numpy",
+                num_gpus=1,
+                concurrency=config.local.num_gpus,
+            )
 
         # Isolated per-run staging dir: avoids cross-model contamination and
         # stale-file carryover from concurrent or previous runs sharing

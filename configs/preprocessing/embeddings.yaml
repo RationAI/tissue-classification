@@ -1,6 +1,12 @@
 # @package _global_
 
 model: ???
+# server: RationAI model service over HTTP; local: run the model on this job's GPU
+# (see preprocessing/foundation_models.py for the supported models).
+backend: server
+local:
+  batch_size: 256
+  num_gpus: 1
 output_dir: ${project_path}/embeddings
 concurrency: 512
 block_size: 2048
@@ -19,6 +25,8 @@ metadata:
   description: Tile embeddings using model ${model}
   hyperparams:
     model: ${model}
+    backend: ${backend}
+    local_batch_size: ${local.batch_size}
     concurrency: ${concurrency}
     block_size: ${block_size}
     splits: ${splits}
