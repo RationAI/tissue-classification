@@ -11,6 +11,7 @@ submit_job(
         "git clone https://github.com/RationAI/tissue-classification workdir",
         "cd workdir",
         "uv sync",
+        "export MLFLOW_TRACKING_URI=http://mlflow.rationai-mlflow:5000",
         "uv run -m preprocessing.coverage_stats +experiment=...",
     ],
     storage=[storage.secure.DATA, storage.secure.PROJECTS],
