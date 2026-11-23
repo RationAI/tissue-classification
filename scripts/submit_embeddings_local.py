@@ -9,7 +9,7 @@ submit_job(
     shm="48Gi",
     gpu="A40",
     script=[
-        "git clone -b feature/h-optimus-0 https://github.com/RationAI/tissue-classification.git workdir",
+        "git clone -b feature/hoptimus-graz-inference https://github.com/RationAI/tissue-classification.git workdir",
         "cd workdir",
         "uv sync",
         "export MLFLOW_TRACKING_URI=http://mlflow.rationai-mlflow:5000",

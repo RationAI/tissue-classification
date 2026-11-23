@@ -27,7 +27,7 @@ Requirements:
 - [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ```bash
-git clone -b feature/h-optimus-0 https://github.com/RationAI/tissue-classification.git
+git clone -b feature/hoptimus-graz-inference https://github.com/RationAI/tissue-classification.git
 cd tissue-classification
 uv sync
 ```

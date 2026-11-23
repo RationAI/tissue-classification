@@ -19,14 +19,14 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 
 | # | Task | Need | Status | Notes |
 |---|------|------|--------|-------|
-| 1 | Local GPU embedding backend (`backend: local`) | must | ✅ done | `preprocessing/foundation_models.py`, `preprocessing/embeddings.py`, commit `b226ffe` on `feature/h-optimus-0` |
+| 1 | Local GPU embedding backend (`backend: local`) | must | ✅ done | `preprocessing/foundation_models.py`, `preprocessing/embeddings.py`, commit `b226ffe` on `feature/hoptimus-graz-inference` |
 | 2 | HF token + gated access (Virchow2, H-Optimus-0) | must | ✅ done | token in `/mnt/projects/tissue_classification/hf_cache/token` (`HF_HOME`), both repos `auth_check` OK |
 | 3 | Parity: local Virchow2 vs model service | must | ✅ PASS | run `49421ae4584147a7bd1f5804037f7a27` vs `6dbdc6e5…`; 4917 tiles, cosine mean 0.999999 / min 0.999989, rel. L2 mean 0.12 %. Parity script/config removed after the check (in git history, commit `b226ffe`) |
 | 4 | H-Optimus-0 embeddings (train + test) | must | ⏳ running | `scripts/submit_embeddings_local.py`, A40, 16 CPU. Run ID: _TODO_. Throughput (row/s): _TODO_ |
 | 5 | Add `embedding_run_ids.hoptimus0` to `configs/data/dataset.yaml` | must | todo | after 4 |
 | 6 | H0 ML configs, LBFGS (train/final/test) | must | drafted, not committed | `configs/experiment/ml/*hoptimus0_lbfgs*`; fill `weight_decay: ???`, `final_train_run_id: ???` |
 | 6b | H0 ML configs, AdamW (train/final/test) | nice | drafted, not committed | only for a complete table like Virchow2/ProvGigaPath; LBFGS (exact convex solve) is enough for the decision |
-| 7 | Group k-fold sweep for H0 (LBFGS) | must | todo | same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); training submit scripts clone `master` → use `-b feature/h-optimus-0` or merge first |
+| 7 | Group k-fold sweep for H0 (LBFGS) | must | todo | same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); training submit scripts clone `master` → use `-b feature/hoptimus-graz-inference` or merge first |
 | 8 | Final + test for H0 (LBFGS) | must | todo | pick weight decay by `validation/f1_macro` |
 | 9 | Comparison Virchow2 vs H0 on our test set | must | todo | macro F1, per-class F1, confusion matrix, per-slide; same tiles/folds/test split/thresholds |
 | 9b | + ProvGigaPath in the comparison | nice | todo | results already exist |
