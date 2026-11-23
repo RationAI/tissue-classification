@@ -19,6 +19,7 @@ dataset:
     embedding_run_ids:
       virchow2: "6dbdc6e57fab472b8d8c33b44b82aa6a"
       provgigapath: "e281c836bc0e4a3291cd23733b2246b4"
+      hoptimus0: "ec9904fdcaa5494babfe0bfa4f348d52"
     tissue_masks_run_id: "52bc0924f8624b259819c480c7cf213f"
     tissue_stats_run_id: "f3401b702f044ac097a177bea30161e5"
 

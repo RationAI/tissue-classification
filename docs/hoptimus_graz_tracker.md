@@ -22,11 +22,11 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 | 1 | Local GPU embedding backend (`backend: local`) | must | ✅ done | `preprocessing/foundation_models.py`, `preprocessing/embeddings.py`, commit `b226ffe` on `feature/hoptimus-graz-inference` |
 | 2 | HF token + gated access (Virchow2, H-Optimus-0) | must | ✅ done | token in `/mnt/projects/tissue_classification/hf_cache/token` (`HF_HOME`), both repos `auth_check` OK |
 | 3 | Parity: local Virchow2 vs model service | must | ✅ PASS | run `49421ae4584147a7bd1f5804037f7a27` vs `6dbdc6e5…`; 4917 tiles, cosine mean 0.999999 / min 0.999989, rel. L2 mean 0.12 %. Parity script/config removed after the check (in git history, commit `b226ffe`) |
-| 4 | H-Optimus-0 embeddings (train + test) | must | ⏳ running | `scripts/submit_embeddings_local.py`, A40, 16 CPU. Run ID: _TODO_. Throughput (row/s): _TODO_ |
-| 5 | Add `embedding_run_ids.hoptimus0` to `configs/data/dataset.yaml` | must | todo | after 4 |
+| 4 | H-Optimus-0 embeddings (train + test) | must | ✅ done | `scripts/submit_embeddings_local.py`, A40, 16 CPU. Run ID: `ec9904fdcaa5494babfe0bfa4f348d52`. Rows match `filter_tiles` exactly (train 1 570 445, test 481 806), no NaN/inf, dim 1536. Runtime 7.6 h (train 95 tiles/s, test 44 tiles/s) |
+| 5 | Add `embedding_run_ids.hoptimus0` to `configs/data/dataset.yaml` | must | ✅ done | `hoptimus0: ec9904fd…` |
 | 6 | H0 ML configs, LBFGS (train/final/test) | must | drafted, not committed | `configs/experiment/ml/*hoptimus0_lbfgs*`; fill `weight_decay: ???`, `final_train_run_id: ???` |
 | 6b | H0 ML configs, AdamW (train/final/test) | nice | drafted, not committed | only for a complete table like Virchow2/ProvGigaPath; LBFGS (exact convex solve) is enough for the decision |
-| 7 | Group k-fold sweep for H0 (LBFGS) | must | todo | same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); training submit scripts clone `master` → use `-b feature/hoptimus-graz-inference` or merge first |
+| 7 | Group k-fold sweep for H0 (LBFGS) | must | todo | same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); `scripts/submit_train_linear_probe.py` with `git clone -b feature/hoptimus-graz-inference` and `+experiment=ml/train_linear_hoptimus0_lbfgs_group_kfold` (local edit only, not committed). Check job log `join done: N matched rows` matches the Virchow2 sweep |
 | 8 | Final + test for H0 (LBFGS) | must | todo | pick weight decay by `validation/f1_macro` |
 | 9 | Comparison Virchow2 vs H0 on our test set | must | todo | macro F1, per-class F1, confusion matrix, per-slide; same tiles/folds/test split/thresholds |
 | 9b | + ProvGigaPath in the comparison | nice | todo | results already exist |
@@ -99,7 +99,7 @@ manifest.csv ─► tissue-mask ─► tile ─► embed[model] ─► classify[
 - [ ] Graz: full list of GT label names and the agreed mapping to our 7 classes.
 - [ ] Graz: are annotations exhaustive or only ROIs?
 - [ ] Graz: can we get one slide + GT to test the CLI before next week?
-- [ ] H0 embedding throughput on A40 → total runtime.
+- [x] H0 embedding throughput on A40 → total runtime: 7.6 h for 2.05 M tiles (~75 tiles/s overall).
 - [ ] Graz: path to the two sample GeoJSON annotation files (received, not yet in the repo).
 
 ## Log
@@ -107,6 +107,7 @@ manifest.csv ─► tissue-mask ─► tile ─► embed[model] ─► classify[
 - 2026-11-23: Supervisor request (H-Optimus-0 vs Virchow2, 15 Graz slides, later HALO).
 - 2026-11-23: H-Optimus-0 not on model service → local GPU backend implemented and pushed.
 - 2026-11-23: Parity test PASS (cosine ≈ 1.0).
+- 2026-11-23: H-Optimus-0 embeddings finished (run `ec9904fd…`); added to `dataset.yaml`, LBFGS sweep ready to submit.
 - 2026-11-23: H-Optimus-0 embedding job submitted.
 - 2026-11-23: Graz: GPU is V100 32 GB; sample GT GeoJSONs received, classes more detailed than ours.
 - 2026-11-23: Graz sample GT analysed: QuPath GeoJSON (`classification.name`), layered (coarse gland/no-gland + detailed); 40–67 % of annotated area maps to our classes, usable tiles 77–96 % Other; Fat exists in other slides (label name TBD).
