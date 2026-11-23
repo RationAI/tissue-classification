@@ -13,7 +13,7 @@ Available models (heads in `inference/heads/`):
 
 | model | foundation model | head trained on |
 |---|---|---|
-| `virchow2` | [paige-ai/Virchow2](https://huggingface.co/paige-ai/Virchow2) | see `heads/virchow2.json` |
+| `virchow2` | [paige-ai/Virchow2](https://huggingface.co/paige-ai/Virchow2) | ✅ final LBFGS head (`heads/virchow2.json`) |
 | `h-optimus-0` | [bioptimus/H-optimus-0](https://huggingface.co/bioptimus/H-optimus-0) | coming soon (embeddings can already be computed) |
 
 ## 1. Setup

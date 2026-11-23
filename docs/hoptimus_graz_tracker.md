@@ -30,7 +30,7 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 | 8 | Final + test for H0 (LBFGS) | must | todo | pick weight decay by `validation/f1_macro` |
 | 9 | Comparison Virchow2 vs H0 on our test set | must | todo | macro F1, per-class F1, confusion matrix, per-slide; same tiles/folds/test split/thresholds |
 | 9b | + ProvGigaPath in the comparison | nice | todo | results already exist |
-| 10 | Export linear heads (ckpt → safetensors + json) | must | script ready | `python -m inference.export_head`; Virchow2 head = LBFGS final run `a0ec1995d1b1472785d30ccbe15e84ef` (same as test/predict configs); must run where MLflow is reachable |
+| 10 | Export linear heads (ckpt → safetensors + json) | must | Virchow2 ✅ / H0 todo | `python -m inference.export_head`; Virchow2 head = LBFGS final run `a0ec1995d1b1472785d30ccbe15e84ef` (same as test/predict configs); must run where MLflow is reachable |
 | 11 | Graz CLI: inference (slides → mask → tiles → embed → classify → maps) | must | ✅ implemented | `python -m inference predict`, see `inference/README.md`; smoke-tested end-to-end on a synthetic pyramid (dummy model/head, stubbed tissue mask) — not yet on a real slide |
 | 11b | Graz CLI: evaluation vs GT + HTML report | must | todo | needs 12 |
 | 11c | Graz CLI: GeoJSON export of predictions | should | todo | for QuPath review; HALO later |

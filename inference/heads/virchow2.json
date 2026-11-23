@@ -1,0 +1,22 @@
+{
+  "model": "virchow2",
+  "hf_repo": "paige-ai/Virchow2",
+  "embedding_dim": 2560,
+  "class_names": [
+    "Nerve",
+    "Blood",
+    "Connective-Tissue",
+    "Fat",
+    "Epithelium",
+    "Muscle",
+    "Other"
+  ],
+  "tile_size": 224,
+  "stride": 112,
+  "mpp": 0.5,
+  "train_run_id": "a0ec1995d1b1472785d30ccbe15e84ef",
+  "checkpoint": "mlflow-artifacts:/104/a0ec1995d1b1472785d30ccbe15e84ef/artifacts/checkpoints/last/checkpoint.ckpt",
+  "optimizer": "lbfgs",
+  "weight_decay": 0.01,
+  "exported_at": "2026-11-23T15:44:10+00:00"
+}
