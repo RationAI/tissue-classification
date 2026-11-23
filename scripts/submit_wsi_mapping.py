@@ -3,7 +3,6 @@ from kube_jobs import storage, submit_job
 
 submit_job(
     job_name="tissue-classification-wsi-mapping",
-    username=...,
     cpu=4,
     memory="8Gi",
     gpu=None,

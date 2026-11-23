@@ -3,7 +3,6 @@ from kube_jobs import storage, submit_job
 
 submit_job(
     job_name="tissue-classification-kfold-split",
-    username=...,
     cpu=4,
     memory="32Gi",
     gpu=None,

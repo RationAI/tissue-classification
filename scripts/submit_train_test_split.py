@@ -3,7 +3,6 @@ from kube_jobs import storage, submit_job
 
 submit_job(
     job_name="tissue-classification-train-test-split",
-    username=...,
     cpu=4,
     memory="16Gi",
     gpu=None,

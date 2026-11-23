@@ -3,7 +3,6 @@ from kube_jobs import storage, submit_job
 
 submit_job(
     job_name="tissue-classification-filter-tiles",
-    username=...,
     cpu=8,
     memory="16Gi",
     public=False,
