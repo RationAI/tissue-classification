@@ -17,7 +17,7 @@ defaults:
 # which deadlocks before the first test batch.
 # Same model architecture as the final run (required for state_dict load).
 mode: test
-final_train_run_id: 0e2230c722134ce0985e09a18ccadf75
+final_train_run_id: a0ec1995d1b1472785d30ccbe15e84ef
 checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
 checkpoint_weights_only: false
 

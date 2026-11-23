@@ -9,7 +9,7 @@ defaults:
 # fields are inert at test.
 #
 mode: test
-final_train_run_id: a23e478b00b04da79cfbf4d91cada8cd
+final_train_run_id: 2a52372d21ed465cbc839b9683de6bea
 checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
 checkpoint_weights_only: false
 
