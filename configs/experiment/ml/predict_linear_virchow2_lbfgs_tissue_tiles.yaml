@@ -8,11 +8,11 @@ defaults:
 # is unlabeled: it writes predictions/maps for review and does not compute test
 # metrics.
 mode: predict
-final_train_run_id: 0e2230c722134ce0985e09a18ccadf75
+final_train_run_id: a0ec1995d1b1472785d30ccbe15e84ef
 checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
 checkpoint_weights_only: false
 
-tissue_embedding_run_id: 95a02c93c164415e94702ad5c83ccca2
+tissue_embedding_run_id: 1d262f23e6664616871c9749f58f747c
 tissue_stats_run_id: ${dataset.mlflow_artifacts.tissue_stats_run_id}
 tissue_stats_artifact_path: tissue_stats
 tissue_column: tile_tissue_coverage
