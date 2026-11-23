@@ -100,19 +100,65 @@ results/graz/
     summary_predict.csv              per slide and model: tile count, predicted class fractions
     <slide>/
         tissue_mask.png              tissue mask used to select tiles (QC)
-        tiles.parquet                tile coordinates (on the 0.5 mpp level) + tissue coverage
+        tiles.parquet                tile coordinates (on the selected level) + tissue coverage
         embeddings_<model>.npy       cached embeddings
         predictions_<model>.parquet  x, y, prob_<class>..., pred, pred_name
-        pred_<model>.tiff            class map (BigTIFF at 0.5 mpp, values = round(255*(i+1)/7))
+        pred_<model>.tiff            class map (BigTIFF at the tile level, values = round(255*(i+1)/7))
         overlay_<model>.png          thumbnail next to the colour-coded prediction
+        gt_tiles.parquet             ground-truth label per tile (after `evaluate`)
+    evaluation/                      see section 5
 ```
 
 Start with `overlay_<model>.png` for a quick visual check and `run_*.json` if a slide failed.
 
+## 5. Evaluation against ground truth
+
+Needs `predict` to have run (same `--slides` / `--out`). CPU only, minutes.
+
+```bash
+# 5a. check that every annotation label is mapped (seconds, no slides needed)
+uv run python -m inference labels --annotations /path/to/annotations/
+
+# 5b. evaluate
+uv run python -m inference evaluate \
+    --slides /path/to/slides/ \
+    --out results/graz \
+    --annotations /path/to/annotations/ \
+    --models virchow2 h-optimus-0
+```
+
+- Annotations: GeoJSON per slide named `<slide>_anno.geojson` (or `<slide>.geojson`),
+  QuPath export (label in `classification.name`), coordinates in level-0 pixels.
+- Label mapping: `inference/label_maps/graz.yaml` — which original labels form each of our
+  classes and which are ignored (e.g. the coarse gland / no-gland layer). Labels found in
+  neither list are reported as unmapped and not evaluated; `labels` lists them.
+- Ground-truth tile labels use exactly the training rule: coverage of the tile's central
+  half-size ROI, ≥ 20 % annotated, a single class only, and per-class minimum coverage
+  (Muscle 0.5, Fat 0.6, Other 0.5, Connective-Tissue 0.4, Epithelium 0.2).
+
+Outputs in `results/graz/evaluation/`:
+
+| file | content |
+|---|---|
+| `report.html` | everything below on one page — start here |
+| `metrics.json` | all numbers, machine readable |
+| `per_class.csv` | precision / recall / F1 / support per model and class |
+| `per_slide.csv` | macro F1 per model and slide |
+| `label_predictions.csv` | for each original GT label (incl. ignored/coarse ones): predicted class distribution |
+| `label_inventory.csv` | labels found and their mapping |
+| `confusion_*.png` | row-normalised confusion matrices |
+| `slides/<slide>.png` | thumbnail, ground truth and each model side by side |
+
+Metrics are reported for all classes and for a variant with Epithelium + Other merged
+(tissue type vs. dysplasia). With several models, a slide-level bootstrap gives 95 % CIs
+of macro F1 and of the pairwise differences. Plain accuracy is dominated by the largest
+class — compare models on macro F1 and per-class F1.
+
 ## Notes
 
-- Tiles: 224 px at the pyramid level closest to 0.5 mpp, stride 112; overlapping tile
-  predictions are fused by summed probabilities — identical to how the model was trained
-  and evaluated.
-- A warning is printed if the closest level is far from 0.5 mpp (e.g. missing pyramid
-  levels); predictions on such slides are not reliable.
+- Tiles: 224 px at the pyramid level closest to 0.5 mpp, stride 112, read natively —
+  the same as the training pipeline. On 0.25 mpp SVS with levels 0.25 / 1.0 this is the
+  0.25 mpp level, which matches most of the training data. Overlapping tile predictions
+  are fused by summed probabilities.
+- A warning is printed only if the selected level lies outside the resolution range of
+  the training data (0.23–0.49 mpp).

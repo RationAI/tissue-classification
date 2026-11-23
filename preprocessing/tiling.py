@@ -1,4 +1,3 @@
-import re
 import tempfile
 from pathlib import Path
 from typing import Any, cast
@@ -16,38 +15,9 @@ from ratiopath.parsers import Darwin7JSONParser, GeoJSONParser
 from ratiopath.ray import read_slides
 from ratiopath.tiling import grid_tiles, tile_annotations
 from ratiopath.tiling.utils import row_hash
-from shapely import Polygon, make_valid
-from shapely.geometry.base import BaseGeometry
+from shapely import Polygon
 
-
-def get_validated_polygons(
-    parser: GeoJSONParser | Darwin7JSONParser, original_names: list[str]
-) -> list[BaseGeometry]:
-    if not original_names:
-        return []
-
-    regex_pattern = f"(?i)^({'|'.join(re.escape(name) for name in original_names)})$"
-
-    if isinstance(parser, GeoJSONParser):
-        raw_polygons = parser.get_polygons(meta_category_value=regex_pattern)
-    else:
-        raw_polygons = parser.get_polygons(name=regex_pattern)
-
-    valid_polygons = []
-    for poly in raw_polygons:
-        if poly is None or poly.is_empty:
-            continue
-
-        validated = make_valid(poly) if not poly.is_valid else poly
-
-        if isinstance(validated, Polygon):
-            valid_polygons.append(validated)
-        elif hasattr(validated, "geoms"):
-            for geom in validated.geoms:
-                if isinstance(geom, Polygon):
-                    valid_polygons.append(geom)
-
-    return valid_polygons
+from preprocessing.annotations import get_validated_polygons
 
 
 def add_annotation_path(

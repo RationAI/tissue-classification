@@ -1,0 +1,52 @@
+# Graz (MUG) ground truth -> our 7 classes.
+#
+# Annotations are QuPath GeoJSON exports (label in properties.classification.name),
+# layered: a coarse region layer (gland-tissue / no-gland-tissue / Background) with
+# detailed labels drawn on top. Only detailed labels are mapped; the coarse layer is
+# ignored so it never competes with the detailed label of the same area.
+#
+# Matching is case-insensitive and exact. Labels found in the annotations but listed
+# neither under `classes` nor `ignore` are reported as unmapped (and not evaluated).
+#
+# Decisions marked TODO are provisional, pending confirmation from Graz.
+
+label_key: classification_name
+
+# Annotation file for slide <stem>, first match wins (relative to --annotations).
+annotation_patterns:
+  - "{stem}_anno.geojson"
+  - "{stem}.geojson"
+  - "{stem}.geo.json"
+
+classes:
+  Nerve: [Nerve]
+  Blood:
+    - Blood
+    - Blood-Plasma            # TODO confirm: vessel content -> Blood
+  Connective-Tissue: [stroma, Collagen]
+  Fat: [fat]
+  Epithelium: [Normal_Epithelium, Normal-Epithelium]
+  Muscle: [Muscle]
+  Other:                      # training: neoplastic + inflammation + necrosis -> Other
+    - Dys-high-grade
+    - Dysplasia-High-Grade
+    - Dys-low-grade
+    - Tubular-glands          # TODO confirm: always adenoma (not normal crypts)?
+    - Villous-glands
+    - Inflammatory
+    - Lymphatic               # TODO confirm: lymphoid tissue (not lymphatic vessels)?
+    - necrosis
+
+ignore:
+  - Background
+  - gland-tissue
+  - no-gland-tissue
+  - Mucin                     # not a training class
+  - Artefact
+  - Unknown
+  - Abnormal-Epithelium       # TODO confirm: reactive/atypical, neither class fits
+
+# Extra evaluation with some of our classes merged.
+merged_variants:
+  epithelium+other:           # tissue type vs. dysplasia detection
+    Epithelial: [Epithelium, Other]

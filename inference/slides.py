@@ -36,6 +36,11 @@ SLIDE_EXTENSIONS = (
 )
 
 
+# Effective tile resolutions in the training data (tiling run fdf7550a...):
+# TCGA 0.228-0.253, FNBrno 0.44, MUG 0.485, MOU 0.486 mpp.
+TRAINING_MPP_RANGE = (0.228, 0.486)
+
+
 @dataclass(frozen=True)
 class SlideGeometry:
     path: Path
@@ -83,10 +88,15 @@ def slide_geometry(
         extent_x, extent_y = slide.level_dimensions[level]
         downsample = float(slide.level_downsamples[level])
 
-    if abs(mpp_x - mpp) / mpp > 0.25:
+    # Tiles are read natively on the closest level, exactly like the training
+    # tiling. On 0.25 mpp SVS with a 1/4/16 pyramid that level is 0.25 mpp, which
+    # is what most training slides (TCGA, ~94 % of tiles) used, so only warn
+    # outside the resolution range the training data covered.
+    lo, hi = TRAINING_MPP_RANGE
+    if not lo * 0.9 <= mpp_x <= hi * 1.1:
         print(
-            f"[warn] {path.name}: closest level has {mpp_x:.3f} mpp "
-            f"(requested {mpp}); tiles will not match the training resolution",
+            f"[warn] {path.name}: tiles read at {mpp_x:.3f} mpp (level {level}), "
+            f"outside the training range {lo}-{hi} mpp; predictions may be unreliable",
             flush=True,
         )
     return SlideGeometry(

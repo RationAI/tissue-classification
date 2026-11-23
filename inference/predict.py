@@ -165,7 +165,7 @@ def write_predictions(
     frame.to_parquet(slide_dir / f"predictions_{head.model}.parquet", index=False)
 
     if len(frame):
-        class_idx, covered, cell = _class_grid(probs, frame, geometry)
+        class_idx, covered, cell = class_grid(probs, frame, geometry)
         _write_class_tiff(
             class_idx,
             covered,
@@ -174,18 +174,20 @@ def write_predictions(
             len(head.class_names),
             slide_dir / f"pred_{head.model}.tiff",
         )
-        _write_overlay(
-            class_idx,
-            covered,
+        write_panels(
             geometry,
-            head,
+            [
+                (geometry.path.name, None, None),
+                (f"{head.model} prediction", class_idx, covered),
+            ],
+            head.class_names,
             thumbnail_size,
             slide_dir / f"overlay_{head.model}.png",
         )
     return frame
 
 
-def _class_grid(
+def class_grid(
     probs: np.ndarray, frame: pd.DataFrame, geometry: SlideGeometry
 ) -> tuple[np.ndarray, np.ndarray, tuple[int, int]]:
     """Fuse overlapping tiles into a per-cell class grid (same rule as training maps)."""
@@ -243,15 +245,19 @@ def class_colors(class_names: list[str]) -> np.ndarray:
     )
 
 
-def _write_overlay(
-    class_idx: np.ndarray,
-    covered: np.ndarray,
+Panel = tuple[str, "np.ndarray | None", "np.ndarray | None"]
+"""(title, class_idx grid or None for the plain thumbnail, covered grid or None)."""
+
+
+def write_panels(
     geometry: SlideGeometry,
-    head: LinearHead,
+    panels: list[Panel],
+    class_names: list[str],
     thumbnail_size: int,
     path: Path,
     alpha: float = 0.45,
 ) -> None:
+    """Side-by-side thumbnail panels with colour-coded class grids and a legend."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -263,38 +269,45 @@ def _write_overlay(
     with OpenSlide(geometry.path) as slide:
         thumb = slide.get_thumbnail((thumbnail_size, thumbnail_size)).convert("RGB")
     width, height = thumb.size
-
-    # The class grid spans the level extent in stride-sized cells; stretching it
-    # to the thumbnail is off by < 1 cell (112 px at 0.5 mpp), invisible here.
-    colors = class_colors(head.class_names)
-    rgb = colors[class_idx]
-    grid_img = Image.fromarray(rgb).resize((width, height), Image.Resampling.NEAREST)
-    cov_img = Image.fromarray(covered.astype(np.uint8) * 255).resize(
-        (width, height), Image.Resampling.NEAREST
-    )
     base = np.asarray(thumb, dtype=np.float32)
-    over = np.asarray(grid_img, dtype=np.float32)
-    weight = (np.asarray(cov_img, dtype=np.float32) / 255.0)[..., None] * alpha
-    blended = (base * (1 - weight) + over * weight).astype(np.uint8)
+    colors = class_colors(class_names)
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 7 * height / width + 1.2), dpi=150)
-    axes[0].imshow(thumb)
-    axes[0].set_title(geometry.path.name, fontsize=9)
-    axes[1].imshow(blended)
-    axes[1].set_title(f"{head.model} prediction", fontsize=9)
-    for ax in axes:
+    def blend(class_idx: np.ndarray, covered: np.ndarray) -> np.ndarray:
+        # The class grid spans the level extent in stride-sized cells; stretching
+        # it to the thumbnail is off by < 1 cell, invisible at this scale.
+        grid = Image.fromarray(colors[class_idx]).resize(
+            (width, height), Image.Resampling.NEAREST
+        )
+        cov = Image.fromarray(covered.astype(np.uint8) * 255).resize(
+            (width, height), Image.Resampling.NEAREST
+        )
+        weight = (np.asarray(cov, dtype=np.float32) / 255.0)[..., None] * alpha
+        over = np.asarray(grid, dtype=np.float32)
+        return (base * (1 - weight) + over * weight).astype(np.uint8)
+
+    n = len(panels)
+    fig, axes = plt.subplots(
+        1, n, figsize=(7 * n, 7 * height / width + 1.2), dpi=150, squeeze=False
+    )
+    for ax, (title, class_idx, covered) in zip(axes[0], panels, strict=True):
+        if class_idx is None or covered is None:
+            ax.imshow(thumb)
+        else:
+            ax.imshow(blend(class_idx, covered))
+        ax.set_title(title, fontsize=9)
         ax.axis("off")
     fig.legend(
         handles=[
-            Patch(color=(c[0] / 255, c[1] / 255, c[2] / 255), label=n)
-            for n, c in zip(head.class_names, colors, strict=True)
+            Patch(color=(c[0] / 255, c[1] / 255, c[2] / 255), label=name)
+            for name, c in zip(class_names, colors, strict=True)
         ],
         loc="lower center",
-        ncol=len(head.class_names),
+        ncol=len(class_names),
         fontsize=8,
         frameon=False,
     )
     fig.tight_layout(rect=(0, 0.05, 1, 1))
+    path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
 

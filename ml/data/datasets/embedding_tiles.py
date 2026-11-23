@@ -19,6 +19,13 @@ from mlflow.artifacts import download_artifacts
 from torch.utils.data import Dataset
 
 from ml.typing import Sample
+from preprocessing._labels import (
+    REASON_LOW_COVERAGE,
+    REASON_MULTI_CLASS,
+    REASON_OK,
+    ROI_PREFIX,
+    assign_tile_labels,
+)
 
 
 class _BaseEmbeddingTilesDataset(Dataset[Sample]):
@@ -116,39 +123,22 @@ class EmbeddingTilesDataset(_BaseEmbeddingTilesDataset):
         local = _resolve_uri(metadata_uri)
         df = pd.read_parquet(local)
 
-        roi_cols = [c for c in df.columns if c.startswith("roi_coverage_")]
-        if not roi_cols:
+        if not any(c.startswith(ROI_PREFIX) for c in df.columns):
             raise ValueError(
                 "metadata parquet has no roi_coverage_* columns; cannot label"
             )
 
-        classes_in_data = {c.removeprefix("roi_coverage_") for c in roi_cols}
-        missing_thresholds = classes_in_data - set(thresholds.keys())
-        if missing_thresholds:
-            raise ValueError(
-                f"thresholds missing entries for classes present in data: "
-                f"{sorted(missing_thresholds)}"
-            )
-
-        tissue_prop = df[roi_cols].sum(axis=1).to_numpy()
-        df = df.loc[tissue_prop >= tissue_prop_min]
-        if df.empty:
+        labelled = assign_tile_labels(df, thresholds, tissue_prop_min)
+        reason = labelled["reason"]
+        if (reason == REASON_LOW_COVERAGE).all():
             raise RuntimeError("all tiles dropped by tissue_prop_min filter")
-
-        nonzero_classes = (df[roi_cols].to_numpy() > 0).sum(axis=1)
-        df = df.loc[pd.Series(nonzero_classes <= 1, index=df.index)]
-        if df.empty:
+        if reason.isin([REASON_LOW_COVERAGE, REASON_MULTI_CLASS]).all():
             raise RuntimeError("all tiles dropped by single-class filter")
-
-        roi_only = df[roi_cols]
-        dominant = roi_only.idxmax(axis=1).str.removeprefix("roi_coverage_")
-        dominant_value = roi_only.max(axis=1).to_numpy()
-        threshold_per_row = dominant.map(thresholds).to_numpy()
-        keep = dominant_value >= threshold_per_row
-        df = df.loc[pd.Series(keep, index=df.index)].copy()
-        df["label"] = dominant.to_numpy()[keep]
-        if df.empty:
+        keep = reason == REASON_OK
+        if not keep.any():
             raise RuntimeError("all tiles dropped by per-class thresholds")
+        df = df.loc[keep].copy()
+        df["label"] = labelled.loc[keep, "label"]
 
         if include_folds is not None or exclude_folds is not None:
             if "fold" not in df.columns:

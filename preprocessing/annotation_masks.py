@@ -14,52 +14,9 @@ from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from ratiopath.openslide import OpenSlide
 from ratiopath.parsers import Darwin7JSONParser, GeoJSONParser
-from shapely import Polygon, make_valid
 from shapely.geometry.base import BaseGeometry
 
-
-def get_validated_polygons(
-    parser: GeoJSONParser | Darwin7JSONParser, original_names: list[str]
-) -> list[BaseGeometry]:
-    """Extraction and topological validation of geometries from a specified parser.
-
-    Applies a regular expression to target class names, filters empty geometries,
-    and fixes potential self-intersections using `make_valid`.
-    Complex geometries (MultiPolygon/GeometryCollection) are linearly
-    flattened into a one-dimensional list of valid atomic polygons.
-
-    Args:
-        parser: Initialized parser instance (GeoJSON/Darwin).
-        original_names: List of original class names in the dataset.
-
-    Returns:
-        List of validated and topologically correct Polygon objects.
-    """
-    if not original_names:
-        return []
-
-    regex_pattern = f"(?i)^({'|'.join(original_names)})$"
-
-    if isinstance(parser, GeoJSONParser):
-        raw_polygons = parser.get_polygons(meta_category_value=regex_pattern)
-    else:
-        raw_polygons = parser.get_polygons(name=regex_pattern)
-
-    valid_polygons = []
-    for poly in raw_polygons:
-        if poly is None or poly.is_empty:
-            continue
-
-        validated = make_valid(poly) if not poly.is_valid else poly
-
-        if isinstance(validated, Polygon):
-            valid_polygons.append(validated)
-        elif hasattr(validated, "geoms"):
-            for geom in validated.geoms:
-                if isinstance(geom, Polygon):
-                    valid_polygons.append(geom)
-
-    return valid_polygons
+from preprocessing.annotations import get_validated_polygons
 
 
 def extract_mapped_regions(

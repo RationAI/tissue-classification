@@ -22,7 +22,6 @@ from typing import Any
 import pandas as pd
 
 from inference.heads import load_head
-from inference.slides import find_slides
 
 
 def _git_commit() -> str | None:
@@ -65,6 +64,7 @@ def predict(args: argparse.Namespace) -> int:
 
 def _run(args: argparse.Namespace, embed_only: bool) -> int:
     from inference.predict import embed_slide, prepare_slide, write_predictions
+    from inference.slides import find_slides
     from preprocessing.foundation_models import FoundationModel, get_spec
 
     started = time.monotonic()
@@ -194,6 +194,80 @@ def _run(args: argparse.Namespace, embed_only: bool) -> int:
     return 0
 
 
+DEFAULT_LABEL_MAP = Path(__file__).parent / "label_maps" / "graz.yaml"
+
+
+def evaluate_cmd(args: argparse.Namespace) -> int:
+    """Compare cached predictions with GeoJSON ground truth."""
+    from inference.evaluate import LabelMap, evaluate, find_annotation
+    from inference.slides import find_slides, slide_geometry
+
+    label_map = LabelMap.load(args.label_map)
+    slides = find_slides(args.slides)
+    items, annotation_files, skipped = [], [], []
+    for path in slides:
+        annotation = find_annotation(
+            path, args.annotations, label_map.annotation_patterns
+        )
+        slide_dir = args.out / path.stem
+        if annotation is None:
+            skipped.append(f"{path.name} (no annotation)")
+            continue
+        missing = [
+            f.name
+            for f in [slide_dir / "tiles.parquet"]
+            + [slide_dir / f"predictions_{m}.parquet" for m in args.models]
+            if not f.exists()
+        ]
+        if missing:
+            skipped.append(
+                f"{path.name} (run predict first: missing {', '.join(missing)})"
+            )
+            continue
+        geometry = slide_geometry(path, args.mpp, args.tile_size, args.stride)
+        items.append((path, annotation, geometry, slide_dir))
+        annotation_files.append(annotation)
+    for s in skipped:
+        print(f"[skip] {s}", flush=True)
+    if not items:
+        print("nothing to evaluate")
+        return 1
+    evaluate(
+        items,
+        args.models,
+        label_map,
+        args.label_map,
+        annotation_files,
+        args.out,
+        args.thumbnail_size,
+    )
+    return 1 if skipped else 0
+
+
+def labels_cmd(args: argparse.Namespace) -> int:
+    """List every annotation label and how the label map handles it."""
+    from inference.evaluate import LabelMap, label_inventory
+
+    label_map = LabelMap.load(args.label_map)
+    files = sorted(
+        p
+        for p in args.annotations.iterdir()
+        if p.name.endswith((".geojson", ".geo.json"))
+    )
+    if not files:
+        print(f"no .geojson files in {args.annotations}")
+        return 1
+    inventory = label_inventory(files, label_map)
+    with pd.option_context("display.max_rows", None, "display.width", 200):
+        print(f"{len(files)} annotation files\n")
+        print(inventory.to_string(index=False, float_format=lambda v: f"{v:.3g}"))
+    unmapped = (inventory["maps_to"] == "<UNMAPPED>").sum()
+    if unmapped:
+        print(f"\n{unmapped} unmapped label(s): add them to {args.label_map}")
+        return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="python -m inference", description=__doc__.splitlines()[0]
@@ -235,6 +309,27 @@ def main() -> int:
         p.add_argument("--tile-size", type=int, default=224, help=argparse.SUPPRESS)
         p.add_argument("--stride", type=int, default=112, help=argparse.SUPPRESS)
         p.set_defaults(func=func)
+
+    p = sub.add_parser("evaluate", help="compare predictions with GeoJSON ground truth")
+    p.add_argument("--slides", type=Path, nargs="+", required=True)
+    p.add_argument("--out", type=Path, required=True, help="same --out as predict")
+    p.add_argument(
+        "--annotations", type=Path, required=True, help="annotation directory"
+    )
+    p.add_argument("--models", nargs="+", default=["virchow2"])
+    p.add_argument("--label-map", type=Path, default=DEFAULT_LABEL_MAP)
+    p.add_argument("--thumbnail-size", type=int, default=1536)
+    p.add_argument("--mpp", type=float, default=0.5, help=argparse.SUPPRESS)
+    p.add_argument("--tile-size", type=int, default=224, help=argparse.SUPPRESS)
+    p.add_argument("--stride", type=int, default=112, help=argparse.SUPPRESS)
+    p.set_defaults(func=evaluate_cmd)
+
+    p = sub.add_parser("labels", help="list annotation labels and their mapping")
+    p.add_argument(
+        "--annotations", type=Path, required=True, help="annotation directory"
+    )
+    p.add_argument("--label-map", type=Path, default=DEFAULT_LABEL_MAP)
+    p.set_defaults(func=labels_cmd)
 
     args = parser.parse_args()
     return int(args.func(args))

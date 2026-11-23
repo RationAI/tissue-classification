@@ -32,13 +32,24 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 | 9b | + ProvGigaPath in the comparison | nice | todo | results already exist |
 | 10 | Export linear heads (ckpt → safetensors + json) | must | Virchow2 ✅ / H0 todo | `python -m inference.export_head`; Virchow2 head = LBFGS final run `a0ec1995d1b1472785d30ccbe15e84ef` (same as test/predict configs); must run where MLflow is reachable |
 | 11 | Graz CLI: inference (slides → mask → tiles → embed → classify → maps) | must | ✅ implemented | `python -m inference predict`, see `inference/README.md`; smoke-tested end-to-end on a synthetic pyramid (dummy model/head, stubbed tissue mask) — not yet on a real slide |
-| 11b | Graz CLI: evaluation vs GT + HTML report | must | todo | needs 12 |
+| 11b | Graz CLI: evaluation vs GT + HTML report | must | ✅ implemented | `inference evaluate` / `inference labels`; GT via shared parser (`preprocessing/annotations.py`) + shared training label rule (`preprocessing/_labels.assign_tile_labels`, verified identical to old loader logic); metrics, merged Epithelium+Other variant, slide bootstrap, GT/model panels, HTML report |
 | 11c | Graz CLI: GeoJSON export of predictions | should | todo | for QuPath review; HALO later |
-| 12 | GT class mapping Graz → our classes | must | todo | Graz annotations are more detailed, classes must be merged; needs the sample GeoJSONs (path: _TODO_) |
+| 12 | GT class mapping Graz → our classes | must | provisional | `inference/label_maps/graz.yaml`; TODO confirm Lymphatic, Abnormal-Epithelium, Blood-Plasma, Tubular-/Villous-glands |
 | 13 | Dry run of Graz CLI on our test slides | must | todo | e-INFRA / MUSICA |
 | 14 | Torch build that runs on V100 (sm_70) | must | todo | verify; likely CUDA 12.6 wheels |
 | 15 | Send Graz questions (nvidia-smi, internet, slide format, exhaustive GT) | must | todo | draft in chat |
 | 16 | Merge `chore/update-final-checkpoints` before/with this branch | should | todo | this branch is based on it (4 commits not in `master`) |
+
+## Known limitation: effective resolution (decided 2026-11-23)
+
+`closest_level(0.5)` picks level 0 on 0.25 mpp SVS with a 1/4/16 pyramid, so the
+"0.5 mpp" pipeline effectively tiles at **0.25 mpp** for TCGA: 93.6 % of train tiles,
+96.1 % of test tiles (MUG 0.485, MOU 0.486, FNBrno 0.44 are the rest).
+Graz SVS (levels 0.25 / 1.0) are read the same way → consistent with the trained heads.
+
+**Decision:** keep as is (Virchow2 and ProvGigaPath perform well). Revisit only if
+H-Optimus-0 (pretrained at 0.5 mpp) underperforms — first check: V2 vs H0 test metrics
+split by resolution group (TCGA@0.25 vs rest@~0.5).
 
 ## Fair-comparison invariants
 
