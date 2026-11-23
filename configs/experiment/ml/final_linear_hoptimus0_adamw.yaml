@@ -1,0 +1,19 @@
+# @package _global_
+
+defaults:
+  - /experiment/ml/final_linear_virchow2_adamw
+  - _self_
+
+embedding_model_name: H-Optimus-0
+embedding_dim: 1536
+embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_ids.hoptimus0}
+mlflow_artifact_path: linear_classifier_final_hoptimus0
+
+# Set after Stage 1 from H-Optimus-0's own AdamW sweep selected by
+# validation/f1_macro.
+model:
+  weight_decay: ???
+
+metadata:
+  run_name: Final Linear Classifier AdamW H-Optimus-0 ${dataset.name}
+  description: "Final AdamW linear probe over frozen H-Optimus-0 embeddings, trained on all training folds with the H-Optimus-0-selected weight decay."
