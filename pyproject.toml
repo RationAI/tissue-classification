@@ -31,6 +31,7 @@ dependencies = [
     "timm>=1.0.0",
     "einops>=0.8.0",
     "matplotlib>=3.10.7",
+    "safetensors>=0.7.0",
 ]
 
 [dependency-groups]

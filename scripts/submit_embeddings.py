@@ -1,6 +1,8 @@
 from kube_jobs import storage, submit_job
 
 
+# For `backend: local` (model run on the job's GPU, e.g. H-Optimus-0) also set
+# gpu=..., and export HF_HOME=... pointing to a cache with the HF token.
 submit_job(
     job_name="tissue-classification-embeddings",
     public=False,
