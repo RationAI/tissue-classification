@@ -1,0 +1,22 @@
+{
+  "model": "h-optimus-0",
+  "hf_repo": "bioptimus/H-optimus-0",
+  "embedding_dim": 1536,
+  "class_names": [
+    "Nerve",
+    "Blood",
+    "Connective-Tissue",
+    "Fat",
+    "Epithelium",
+    "Muscle",
+    "Other"
+  ],
+  "tile_size": 224,
+  "stride": 112,
+  "mpp": 0.5,
+  "train_run_id": "9b7a1269c65c4e9780fcad655088be14",
+  "checkpoint": "mlflow-artifacts:/104/9b7a1269c65c4e9780fcad655088be14/artifacts/checkpoints/last/checkpoint.ckpt",
+  "optimizer": "lbfgs",
+  "weight_decay": 0.001,
+  "exported_at": "2026-11-24T15:54:43+00:00"
+}
