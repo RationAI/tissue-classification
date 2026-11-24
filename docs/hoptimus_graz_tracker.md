@@ -24,12 +24,12 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 | 3 | Parity: local Virchow2 vs model service | must | ✅ PASS | run `49421ae4584147a7bd1f5804037f7a27` vs `6dbdc6e5…`; 4917 tiles, cosine mean 0.999999 / min 0.999989, rel. L2 mean 0.12 %. Parity script/config removed after the check (in git history, commit `b226ffe`) |
 | 4 | H-Optimus-0 embeddings (train + test) | must | ✅ done | `scripts/submit_embeddings_local.py`, A40, 16 CPU. Run ID: `ec9904fdcaa5494babfe0bfa4f348d52`. Rows match `filter_tiles` exactly (train 1 570 445, test 481 806), no NaN/inf, dim 1536. Runtime 7.6 h (train 95 tiles/s, test 44 tiles/s) |
 | 5 | Add `embedding_run_ids.hoptimus0` to `configs/data/dataset.yaml` | must | ✅ done | `hoptimus0: ec9904fd…` |
-| 6 | H0 ML configs, LBFGS (train/final/test) | must | drafted, not committed | `configs/experiment/ml/*hoptimus0_lbfgs*`; fill `weight_decay: ???`, `final_train_run_id: ???` |
-| 6b | H0 ML configs, AdamW (train/final/test) | nice | drafted, not committed | only for a complete table like Virchow2/ProvGigaPath; LBFGS (exact convex solve) is enough for the decision |
+| 6 | H0 ML configs, LBFGS (train/final/test) | must | ✅ done | `configs/experiment/ml/*hoptimus0_lbfgs*`; wd 1e-3, test → final `9b7a1269…` |
+| 6b | H0 ML configs, AdamW (train/final/test) | nice | final ✅ / test todo | final `4a5ffaf1…` (wd 1e-3 reused from LBFGS, no AdamW sweep); test `+experiment=ml/test_linear_hoptimus0_adamw` only for a complete table |
 | 7 | Group k-fold sweep for H0 (LBFGS) | must | ✅ done | best wd 1e-3 (mean val F1-macro 0.876 ± 0.047); same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); `scripts/submit_train_linear_probe.py` with `git clone -b feature/hoptimus-graz-inference` and `+experiment=ml/train_linear_hoptimus0_lbfgs_group_kfold` (local edit only, not committed). Check job log `join done: N matched rows` matches the Virchow2 sweep |
-| 8 | Final + test for H0 (LBFGS) | must | final ✅ / test todo | final LBFGS `9b7a1269c65c4e9780fcad655088be14`, AdamW `4a5ffaf1b4c74d6b872620d1f3f3bf6d` (both wd 1e-3; AdamW reuses the LBFGS wd); submit with `+experiment=ml/final_linear_hoptimus0_lbfgs`, then test with `final_train_run_id=<run>` |
-| 9 | Comparison Virchow2 vs H0 on our test set | must | todo | macro F1, per-class F1, confusion matrix, per-slide; same tiles/folds/test split/thresholds |
-| 9b | + ProvGigaPath in the comparison | nice | todo | results already exist |
+| 8 | Final + test for H0 (LBFGS) | must | ✅ done | test `10d443de…` F1-macro 0.896; final LBFGS `9b7a1269c65c4e9780fcad655088be14`, AdamW `4a5ffaf1b4c74d6b872620d1f3f3bf6d` (both wd 1e-3; AdamW reuses the LBFGS wd); submit with `+experiment=ml/final_linear_hoptimus0_lbfgs`, then test with `final_train_run_id=<run>` |
+| 9 | Comparison Virchow2 vs H0 on our test set | must | ✅ done | V2 test `d604fb19…` (head `a0ec1995`) 0.893 vs H0 0.896; paired per-slide acc H0−V2 −0.005, 95 % CI [−0.022, +0.010] → tie (see log). Tile-level paired bootstrap would need test-mode prediction parquet (not logged yet) |
+| 9b | + ProvGigaPath in the comparison | nice | partial | May PGP checkpoints: 0.818 / 0.829; Nov finals `03e0b84b` / `f0ea2068` untested |
 | 10 | Export linear heads (ckpt → safetensors + json) | must | ✅ done | `python -m inference.export_head`; Virchow2 head = LBFGS final run `a0ec1995d1b1472785d30ccbe15e84ef` (same as test/predict configs); H0 head = LBFGS final run `9b7a1269c65c4e9780fcad655088be14` (wd 1e-3); must run where MLflow is reachable |
 | 11 | Graz CLI: inference (slides → mask → tiles → embed → classify → maps) | must | ✅ implemented | `python -m inference predict`, see `inference/README.md`; smoke-tested end-to-end on a synthetic pyramid (dummy model/head, stubbed tissue mask) — not yet on a real slide |
 | 11b | Graz CLI: evaluation vs GT + HTML report | must | ✅ implemented | `inference evaluate` / `inference labels`; GT via shared parser (`preprocessing/annotations.py`) + shared training label rule (`preprocessing/_labels.assign_tile_labels`, verified identical to old loader logic); metrics, merged Epithelium+Other variant, slide bootstrap, GT/model panels, HTML report |
@@ -48,7 +48,7 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 Graz SVS (levels 0.25 / 1.0) are read the same way → consistent with the trained heads.
 
 **Decision:** keep as is (Virchow2 and ProvGigaPath perform well). Revisit only if
-H-Optimus-0 (pretrained at 0.5 mpp) underperforms — first check: V2 vs H0 test metrics
+H-Optimus-0 (pretrained at 0.5 mpp) underperforms. **Checked 2026-11-24: it does not** (test tie; per-slide H0−V2 TCGA +0.002, non-TCGA −0.013), so closed — first check: V2 vs H0 test metrics
 split by resolution group (TCGA@0.25 vs rest@~0.5).
 
 ## Fair-comparison invariants
