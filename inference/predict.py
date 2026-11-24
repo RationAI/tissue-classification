@@ -28,6 +28,7 @@ from inference.slides import (
     tissue_coverage,
     tissue_mask,
 )
+from ml.prediction_maps import ClassVoteAssembler
 
 
 if TYPE_CHECKING:
@@ -49,7 +50,9 @@ CLASS_COLORS: dict[str, tuple[int, int, int]] = {
     "Muscle": (255, 120, 0),
     "Other": (60, 179, 113),
 }
-_FALLBACK_COLORS = [(31, 119, 180), (44, 160, 44), (214, 39, 40), (127, 127, 127)]
+
+Panel = tuple[str, "np.ndarray | None", "np.ndarray | None"]
+"""(title, class_idx grid or None for the plain thumbnail, covered grid or None)."""
 
 
 class _TileDataset(Dataset[np.ndarray]):
@@ -74,15 +77,10 @@ class _TileDataset(Dataset[np.ndarray]):
 
 
 def prepare_slide(
-    path: Path,
-    slide_dir: Path,
-    mpp: float,
-    tile_size: int,
-    stride: int,
-    tissue_min: float,
+    path: Path, slide_dir: Path, tissue_min: float
 ) -> tuple[SlideGeometry, pd.DataFrame]:
     """Geometry + tissue tiles for a slide; cached in ``tiles.parquet``."""
-    geometry = slide_geometry(path, mpp=mpp, tile_size=tile_size, stride=stride)
+    geometry = slide_geometry(path)
     tiles_path = slide_dir / "tiles.parquet"
     if tiles_path.exists():
         return geometry, pd.read_parquet(tiles_path)
@@ -165,15 +163,16 @@ def write_predictions(
     frame.to_parquet(slide_dir / f"predictions_{head.model}.parquet", index=False)
 
     if len(frame):
-        class_idx, covered, cell = class_grid(probs, frame, geometry)
-        _write_class_tiff(
-            class_idx,
-            covered,
-            cell,
-            geometry,
-            len(head.class_names),
-            slide_dir / f"pred_{head.model}.tiff",
+        class_map = assemble_class_map(
+            probs, frame["x"].to_numpy(), frame["y"].to_numpy(), geometry
         )
+        # Same value encoding as the training prediction maps.
+        class_map.write_tiff(
+            (geometry.extent_x, geometry.extent_y),
+            slide_dir / f"pred_{head.model}.tiff",
+            (geometry.mpp_x, geometry.mpp_y),
+        )
+        class_idx, covered = class_map.class_indices()
         write_panels(
             geometry,
             [
@@ -187,13 +186,11 @@ def write_predictions(
     return frame
 
 
-def class_grid(
-    probs: np.ndarray, frame: pd.DataFrame, geometry: SlideGeometry
-) -> tuple[np.ndarray, np.ndarray, tuple[int, int]]:
+def assemble_class_map(
+    probs: np.ndarray, xs: np.ndarray, ys: np.ndarray, geometry: SlideGeometry
+) -> ClassVoteAssembler:
     """Fuse overlapping tiles into a per-cell class grid (same rule as training maps)."""
-    from ml.callbacks.tiff_prediction_map_writer import _ClassVoteAssembler
-
-    assembler = _ClassVoteAssembler(
+    assembler = ClassVoteAssembler(
         geometry.extent_x,
         geometry.extent_y,
         geometry.tile_size,
@@ -204,49 +201,14 @@ def class_grid(
     )
     assembler.update(
         torch.from_numpy(probs.astype(np.float32)),
-        torch.from_numpy(frame["x"].to_numpy()),
-        torch.from_numpy(frame["y"].to_numpy()),
+        torch.from_numpy(xs),
+        torch.from_numpy(ys),
     )
-    class_idx, covered = assembler.class_indices()
-    return class_idx, covered, (assembler.cdx, assembler.cdy)
-
-
-def _write_class_tiff(
-    class_idx: np.ndarray,
-    covered: np.ndarray,
-    cell: tuple[int, int],
-    geometry: SlideGeometry,
-    n_classes: int,
-    path: Path,
-) -> None:
-    """BigTIFF in the value encoding of the training prediction maps."""
-    from ml.callbacks.tiff_prediction_map_writer import _emit_mask, _spread_lut
-
-    labels = _spread_lut(n_classes)[class_idx].astype(np.uint8)
-    labels[~covered] = 0
-    _emit_mask(
-        np.ascontiguousarray(labels),
-        cell[0],
-        cell[1],
-        (geometry.extent_x, geometry.extent_y),
-        0,
-        path,
-        (geometry.mpp_x, geometry.mpp_y),
-    )
+    return assembler
 
 
 def class_colors(class_names: list[str]) -> np.ndarray:
-    return np.array(
-        [
-            CLASS_COLORS.get(name, _FALLBACK_COLORS[i % len(_FALLBACK_COLORS)])
-            for i, name in enumerate(class_names)
-        ],
-        dtype=np.uint8,
-    )
-
-
-Panel = tuple[str, "np.ndarray | None", "np.ndarray | None"]
-"""(title, class_idx grid or None for the plain thumbnail, covered grid or None)."""
+    return np.array([CLASS_COLORS[name] for name in class_names], dtype=np.uint8)
 
 
 def write_panels(

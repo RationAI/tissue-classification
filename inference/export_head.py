@@ -22,6 +22,7 @@ import torch
 from safetensors.numpy import save_file
 
 from inference.heads import HEADS_DIR
+from inference.slides import TILE_MPP, TILE_SIZE, TILE_STRIDE
 from preprocessing.foundation_models import get_spec
 
 
@@ -77,9 +78,9 @@ def main() -> None:
         "hf_repo": spec.hf_repo,
         "embedding_dim": spec.embedding_dim,
         "class_names": class_names,
-        "tile_size": spec.tile_size,
-        "stride": spec.tile_size // 2,
-        "mpp": spec.mpp,
+        "tile_size": TILE_SIZE,
+        "stride": TILE_STRIDE,
+        "mpp": TILE_MPP,
         "train_run_id": args.run_id,
         "checkpoint": uri,
         "optimizer": ckpt["hyper_parameters"].get("optimizer"),

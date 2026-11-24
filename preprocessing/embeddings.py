@@ -169,7 +169,6 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
             {
                 "hf_repo": spec.hf_repo,
                 "embedding_dim": spec.embedding_dim,
-                "autocast_dtype": "float16",
             }
         )
 
@@ -277,7 +276,7 @@ def main(config: DictConfig, logger: MLFlowLogger) -> None:
                 batch_size=config.local.batch_size,
                 batch_format="numpy",
                 num_gpus=1,
-                concurrency=config.local.num_gpus,
+                concurrency=config.local.num_actors,
             )
 
         # Isolated per-run staging dir: avoids cross-model contamination and

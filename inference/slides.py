@@ -2,8 +2,8 @@
 
 - level selection: ``OpenSlide.closest_level(mpp)`` (as ``ratiopath.ray.read_slides``)
 - tile grid: ``ratiopath.tiling.grid_tiles`` on the selected level (as ``tiling.py``)
-- tissue mask: same filter as ``tissue_masks.py`` (grayscale, Otsu, closing 50,
-  opening 5) at the level closest to 2 mpp
+- tissue mask: same filter as ``tissue_masks.py`` (``preprocessing._tissue_filter``
+  with the training disk factor) at the level closest to 2 mpp
 - tissue coverage: fraction of the tile footprint covered by the mask, with the
   tile -> mask scale taken from image dimensions (as ``coverage_stats.py``)
 """
@@ -35,6 +35,16 @@ SLIDE_EXTENSIONS = (
     ".svslide",
 )
 
+
+# Tiling of the training pipeline (configs/experiment/preprocessing/tiling_0_5mpp.yaml);
+# the exported heads are only valid for this geometry.
+TILE_MPP = 0.5
+TILE_SIZE = 224
+TILE_STRIDE = 112
+
+# Tissue mask of the training pipeline (configs/experiment/preprocessing/tissue_masks_2mpp.yaml).
+TISSUE_MASK_MPP = 2.0
+TISSUE_MASK_DISK_FACTOR = 50
 
 # Effective tile resolutions in the training data (tiling run fdf7550a...):
 # TCGA 0.228-0.253, FNBrno 0.44, MUG 0.485, MOU 0.486 mpp.
@@ -73,17 +83,16 @@ def find_slides(inputs: list[Path]) -> list[Path]:
     return slides
 
 
-def slide_geometry(
-    path: Path, mpp: float, tile_size: int, stride: int
-) -> SlideGeometry:
+def slide_geometry(path: Path) -> SlideGeometry:
+    """Pyramid level and tile grid parameters the slide is tiled with."""
     with OpenSlide(path) as slide:
         try:
-            level = slide.closest_level(mpp)
+            level = slide.closest_level(TILE_MPP)
             mpp_x, mpp_y = slide.slide_resolution(level)
         except KeyError as exc:
             raise ValueError(
                 f"{path.name}: slide has no microns-per-pixel metadata "
-                "(openslide.mpp-x / openslide.mpp-y); cannot select the 0.5 mpp level"
+                f"(openslide.mpp-x / openslide.mpp-y); cannot select the {TILE_MPP} mpp level"
             ) from exc
         extent_x, extent_y = slide.level_dimensions[level]
         downsample = float(slide.level_downsamples[level])
@@ -107,37 +116,28 @@ def slide_geometry(
         mpp_x=float(mpp_x),
         mpp_y=float(mpp_y),
         downsample=downsample,
-        tile_size=tile_size,
-        stride=stride,
+        tile_size=TILE_SIZE,
+        stride=TILE_STRIDE,
     )
 
 
-def tissue_mask(path: Path, mpp: float = 2.0) -> np.ndarray:
-    """Binary tissue mask (uint8 0/255) at the level closest to ``mpp``."""
+def tissue_mask(path: Path) -> np.ndarray:
+    """Binary tissue mask (uint8 0/255) at the level closest to ``TISSUE_MASK_MPP``."""
     import pyvips
     from rationai.masks import tissue_mask as rationai_tissue_mask
-    from rationai.masks.vips_filters import (
-        VipsClosing,
-        VipsCompose,
-        VipsGrayScaleFilter,
-        VipsOpening,
-        VipsOtsu,
-    )
+
+    from preprocessing._tissue_filter import tissue_filter
 
     with OpenSlide(path) as slide:
-        level = slide.closest_level(mpp)
+        level = slide.closest_level(TISSUE_MASK_MPP)
         mpp_x, mpp_y = slide.slide_resolution(level)
 
     image = pyvips.Image.openslideload(str(path), level=level)
-    custom_filter = VipsCompose(
-        [
-            VipsGrayScaleFilter(),
-            VipsOtsu(),
-            VipsClosing(disc_factor=50),
-            VipsOpening(disc_factor=5),
-        ]
+    mask, _ = rationai_tissue_mask(
+        image,
+        mpp=(mpp_x, mpp_y),
+        filter=tissue_filter(TISSUE_MASK_DISK_FACTOR),
     )
-    mask, _ = rationai_tissue_mask(image, mpp=(mpp_x, mpp_y), filter=custom_filter)
     array = np.asarray(mask.numpy())
     if array.ndim > 2:
         array = array[..., 0]

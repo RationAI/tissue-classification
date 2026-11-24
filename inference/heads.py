@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 from safetensors.numpy import load_file
 
+from inference.slides import TILE_MPP, TILE_SIZE, TILE_STRIDE
+
 
 HEADS_DIR = Path(__file__).parent / "heads"
 
@@ -56,6 +58,13 @@ def load_head(model: str, heads_dir: Path = HEADS_DIR) -> LinearHead:
         )
     tensors = load_file(str(weights_path))
     meta = json.loads(meta_path.read_text())
+    tiling = {"tile_size": TILE_SIZE, "stride": TILE_STRIDE, "mpp": TILE_MPP}
+    head_tiling = {key: meta.get(key) for key in tiling}
+    if head_tiling != tiling:
+        raise ValueError(
+            f"{meta_path.name} was trained on tiling {head_tiling}, "
+            f"but inference tiles with {tiling}"
+        )
     return LinearHead(
         model=model,
         weight=tensors["weight"].astype(np.float32),

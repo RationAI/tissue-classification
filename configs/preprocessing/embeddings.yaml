@@ -6,7 +6,7 @@ model: ???
 backend: server
 local:
   batch_size: 256
-  num_gpus: 1
+  num_actors: 1  # one GPU each
 output_dir: ${project_path}/embeddings
 concurrency: 512
 block_size: 2048

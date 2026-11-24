@@ -13,7 +13,7 @@ evaluation. Supported formats:
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ratiopath.parsers import Darwin7JSONParser, GeoJSONParser
 from shapely import Polygon, make_valid
@@ -27,6 +27,11 @@ if TYPE_CHECKING:
 
 XOPAT_LABEL_KEY = "meta_category_value"
 QUPATH_LABEL_KEY = "classification_name"
+# Nested ``properties`` path of each label key in a GeoJSON feature.
+_LABEL_KEY_PATHS = {
+    XOPAT_LABEL_KEY: ("meta", "category", "value"),
+    QUPATH_LABEL_KEY: ("classification", "name"),
+}
 
 
 def open_annotations(path: Path) -> GeoJSONParser | Darwin7JSONParser | None:
@@ -76,3 +81,15 @@ def get_validated_polygons(
             valid_polygons.extend(g for g in validated.geoms if isinstance(g, Polygon))
 
     return valid_polygons
+
+
+def geojson_feature_label(
+    properties: dict[str, Any] | None, label_key: str
+) -> str | None:
+    """Label of a GeoJSON feature under ``label_key`` (None if it has none)."""
+    value: Any = properties or {}
+    for key in _LABEL_KEY_PATHS[label_key]:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return str(value) if value else None

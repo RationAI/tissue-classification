@@ -26,7 +26,7 @@ import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -36,13 +36,28 @@ from shapely import STRtree
 from shapely.geometry import shape
 from shapely.ops import unary_union
 
-from preprocessing._labels import ROI_PREFIX, assign_tile_labels
-from preprocessing.annotations import get_validated_polygons, open_annotations
+from preprocessing._labels import REASON_OK, ROI_PREFIX, assign_tile_labels
+from preprocessing.annotations import (
+    QUPATH_LABEL_KEY,
+    geojson_feature_label,
+    get_validated_polygons,
+    open_annotations,
+)
+
+
+if TYPE_CHECKING:
+    from inference.predict import Panel
+    from inference.slides import SlideGeometry
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRAINING_TASK_CONFIG = REPO_ROOT / "configs/ml/task/final_linear_classifier.yaml"
 RAW_LABEL_MAJORITY = 0.5  # ROI share for the "GT label -> prediction" table
+
+# Mapping targets that are not one of our classes.
+IGNORED = "<ignored>"
+UNMAPPED = "<UNMAPPED>"
+NO_LABEL = "<no classification>"
 
 
 # --------------------------------------------------------------------------- config
@@ -50,6 +65,7 @@ RAW_LABEL_MAJORITY = 0.5  # ROI share for the "GT label -> prediction" table
 
 @dataclass
 class LabelMap:
+    path: Path
     label_key: str
     annotation_patterns: list[str]
     classes: dict[str, list[str]]
@@ -60,7 +76,8 @@ class LabelMap:
     def load(cls, path: Path) -> LabelMap:
         raw: Any = OmegaConf.to_container(OmegaConf.load(path))
         return cls(
-            label_key=raw.get("label_key", "classification_name"),
+            path=path,
+            label_key=raw.get("label_key", QUPATH_LABEL_KEY),
             annotation_patterns=raw.get(
                 "annotation_patterns", ["{stem}.geojson", "{stem}.geo.json"]
             ),
@@ -70,15 +87,15 @@ class LabelMap:
         )
 
     def target_of(self, label: str | None) -> str | None:
-        """Our class for an original label, "<ignored>", or None if unmapped."""
+        """Our class for an original label, ``IGNORED``, or None if unmapped."""
         if label is None:
-            return "<ignored>"
+            return IGNORED
         low = label.lower()
         for target, names in self.classes.items():
             if low in (n.lower() for n in names):
                 return target
         if low in (n.lower() for n in self.ignore):
-            return "<ignored>"
+            return IGNORED
         return None
 
 
@@ -101,21 +118,6 @@ def find_annotation(slide: Path, directory: Path, patterns: list[str]) -> Path |
 # ------------------------------------------------------------------ label inventory
 
 
-def _feature_label(props: dict[str, Any] | None) -> str | None:
-    props = props or {}
-    cls = props.get("classification")
-    if isinstance(cls, dict) and cls.get("name"):
-        return str(cls["name"])
-    if isinstance(cls, str) and cls:
-        return cls
-    meta = props.get("meta")
-    if isinstance(meta, dict):
-        category = meta.get("category")
-        if isinstance(category, dict) and category.get("value"):
-            return str(category["value"])
-    return None
-
-
 def label_inventory(files: list[Path], label_map: LabelMap) -> pd.DataFrame:
     """Every label in the annotation files: count, area, files, mapping target."""
     stats: dict[str | None, dict[str, Any]] = defaultdict(
@@ -125,7 +127,9 @@ def label_inventory(files: list[Path], label_map: LabelMap) -> pd.DataFrame:
         for feature in json.loads(path.read_text()).get("features", []):
             if not feature.get("geometry"):
                 continue
-            label = _feature_label(feature.get("properties"))
+            label = geojson_feature_label(
+                feature.get("properties"), label_map.label_key
+            )
             entry = stats[label]
             entry["features"] += 1
             entry["area_px"] += float(shape(feature["geometry"]).area)
@@ -135,8 +139,8 @@ def label_inventory(files: list[Path], label_map: LabelMap) -> pd.DataFrame:
         target = label_map.target_of(label)
         rows.append(
             {
-                "label": label if label is not None else "<no classification>",
-                "maps_to": target if target is not None else "<UNMAPPED>",
+                "label": label if label is not None else NO_LABEL,
+                "maps_to": target if target is not None else UNMAPPED,
                 "features": entry["features"],
                 "files": len(entry["files"]),
                 "area_px": entry["area_px"],
@@ -198,7 +202,8 @@ def ground_truth_tiles(
         {
             lbl
             for f in json.loads(annotation.read_text()).get("features", [])
-            if (lbl := _feature_label(f.get("properties"))) is not None
+            if (lbl := geojson_feature_label(f.get("properties"), label_map.label_key))
+            is not None
         }
     )
     raw = pd.DataFrame(index=tiles.index)
@@ -387,7 +392,7 @@ def write_report(
             + "</p>"
         )
     parts += ["<h2>Summary</h2>", _table(tables["summary"])]
-    if metrics.get("bootstrap"):
+    if not tables["bootstrap"].empty:
         parts.append("<h2>Model differences (slide bootstrap, pooled macro F1)</h2>")
         parts.append(_table(tables["bootstrap"]))
     parts += ["<h2>Per class</h2>", _table(tables["per_class"])]
@@ -417,6 +422,16 @@ def write_report(
 # ------------------------------------------------------------------ driver
 
 
+@dataclass(frozen=True)
+class EvalItem:
+    """A slide to evaluate: its annotation, tiling and ``predict`` output directory."""
+
+    slide: Path
+    annotation: Path
+    geometry: SlideGeometry
+    slide_dir: Path
+
+
 @dataclass
 class SlideEval:
     name: str
@@ -424,209 +439,80 @@ class SlideEval:
     raw: pd.DataFrame
     predictions: dict[str, pd.DataFrame]
 
+    @property
+    def labelled(self) -> np.ndarray:
+        """Mask of tiles with a ground-truth label (the evaluated tiles)."""
+        return (self.gt["reason"] == REASON_OK).to_numpy()
+
+
+@dataclass
+class _Rows:
+    """Rows of the report tables, accumulated over variants and models."""
+
+    summary: list[dict[str, Any]] = field(default_factory=list)
+    per_class: list[dict[str, Any]] = field(default_factory=list)
+    per_slide: list[dict[str, Any]] = field(default_factory=list)
+    bootstrap: list[dict[str, Any]] = field(default_factory=list)
+
 
 def evaluate(
-    slides: list[tuple[Path, Path, Any, Path]],
+    items: list[EvalItem],
     models: list[str],
     label_map: LabelMap,
-    label_map_path: Path,
-    annotation_files: list[Path],
     out: Path,
     thumbnail_size: int,
 ) -> dict[str, Any]:
-    """``slides``: (slide path, annotation path, geometry, slide output dir)."""
     from inference.heads import load_head
-    from inference.predict import class_grid, write_panels
 
     class_names = load_head(models[0]).class_names
     thresholds, tissue_prop_min = training_label_rule()
     eval_dir = out / "evaluation"
     (eval_dir / "slides").mkdir(parents=True, exist_ok=True)
 
-    inventory = label_inventory(annotation_files, label_map)
+    inventory = label_inventory([item.annotation for item in items], label_map)
     inventory.to_csv(eval_dir / "label_inventory.csv", index=False)
-    unmapped = inventory.loc[inventory["maps_to"] == "<UNMAPPED>", "label"].tolist()
+    unmapped = inventory.loc[inventory["maps_to"] == UNMAPPED, "label"].tolist()
     if unmapped:
         print(
             f"[warn] unmapped labels (not evaluated): {', '.join(unmapped)}", flush=True
         )
 
     evals: list[SlideEval] = []
-    for i, (slide, annotation, geometry, slide_dir) in enumerate(slides, 1):
-        print(f"[{i}/{len(slides)}] {slide.name}: ground truth", flush=True)
-        tiles = pd.read_parquet(slide_dir / "tiles.parquet")
-        gt, raw = ground_truth_tiles(
-            annotation,
-            tiles,
-            geometry.tile_size,
-            geometry.downsample,
-            label_map,
-            thresholds,
-            tissue_prop_min,
-        )
-        gt.to_parquet(slide_dir / "gt_tiles.parquet", index=False)
-        reasons = gt["reason"].value_counts().to_dict()
-        print(
-            f"  {int((gt['reason'] == 'ok').sum())} labelled tiles {reasons}",
-            flush=True,
-        )
-
-        preds = {}
-        for model in models:
-            p = pd.read_parquet(slide_dir / f"predictions_{model}.parquet")
-            if (
-                len(p) != len(tiles)
-                or not (p["x"].to_numpy() == tiles["x"].to_numpy()).all()
-            ):
-                raise RuntimeError(
-                    f"{slide.name}: predictions_{model} do not match tiles.parquet"
-                )
-            preds[model] = p
-        evals.append(SlideEval(slide.name, gt, raw, preds))
-
-        # thumbnail | GT | each model
-        ok = (gt["reason"] == "ok").to_numpy()
-        panels: list[Any] = [(slide.name, None, None)]
-        if ok.any():
-            onehot = np.zeros((int(ok.sum()), len(class_names)), dtype=np.float32)
-            onehot[
-                np.arange(ok.sum()), [class_names.index(c) for c in gt.loc[ok, "label"]]
-            ] = 1
-            gidx, gcov, _ = class_grid(onehot, gt.loc[ok, ["x", "y"]], geometry)
-            panels.append(("ground truth (evaluated tiles)", gidx, gcov))
-        for model, p in preds.items():
-            probs = p[[f"prob_{c}" for c in class_names]].to_numpy()
-            pidx, pcov, _ = class_grid(probs, p, geometry)
-            panels.append((model, pidx, pcov))
-        write_panels(
-            geometry,
-            panels,
+    for i, item in enumerate(items, 1):
+        print(f"[{i}/{len(items)}] {item.slide.name}: ground truth", flush=True)
+        ev = _load_slide(item, models, label_map, thresholds, tissue_prop_min)
+        evals.append(ev)
+        _write_slide_panels(
+            ev,
+            item.geometry,
             class_names,
             thumbnail_size,
-            eval_dir / "slides" / f"{slide_dir.name}.png",
+            eval_dir / "slides" / f"{item.slide_dir.name}.png",
         )
-
-    variants: dict[str, dict[str, list[str]]] = {"all classes": {}}
-    variants.update(label_map.merged_variants)
 
     metrics: dict[str, Any] = {
         "models": models,
         "n_slides": len(evals),
-        "label_map": str(label_map_path),
+        "label_map": str(label_map.path),
         "thresholds": thresholds,
         "tissue_prop_min": tissue_prop_min,
         "unmapped_labels": unmapped,
         "variants": {},
     }
-    summary_rows, per_class_rows, per_slide_rows, boot_rows = [], [], [], []
+    variants: dict[str, dict[str, list[str]]] = {"all classes": {}}
+    variants.update(label_map.merged_variants)
+    rows = _Rows()
     for variant, merge in variants.items():
-        names = list(
-            dict.fromkeys(merge_labels(np.array(class_names, dtype=object), merge))
+        metrics["variants"][variant] = _evaluate_variant(
+            variant, merge, evals, models, class_names, eval_dir, rows
         )
-        per_slide_cms: dict[str, list[np.ndarray]] = {m: [] for m in models}
-        metrics["variants"][variant] = {"models": {}}
-        for model in models:
-            for ev in evals:
-                ok = (ev.gt["reason"] == "ok").to_numpy()
-                g = merge_labels(ev.gt.loc[ok, "label"].to_numpy(), merge)
-                pr = merge_labels(
-                    ev.predictions[model].loc[ok, "pred_name"].to_numpy(), merge
-                )
-                cm = confusion(g, pr, names)
-                per_slide_cms[model].append(cm)
-                s = scores(cm, names)
-                per_slide_rows.append(
-                    {
-                        "variant": variant,
-                        "model": model,
-                        "slide": ev.name,
-                        "tiles": s["tiles"],
-                        "macro_f1": s["macro_f1"],
-                        "balanced_accuracy": s["balanced_accuracy"],
-                    }
-                )
-            pooled = np.sum(per_slide_cms[model], axis=0)
-            s = scores(pooled, names)
-            s["confusion"] = pooled.tolist()
-            s["class_names"] = names
-            metrics["variants"][variant]["models"][model] = s
-            summary_rows.append(
-                {
-                    "variant": variant,
-                    "model": model,
-                    "tiles": s["tiles"],
-                    "macro_f1": s["macro_f1"],
-                    "balanced_accuracy": s["balanced_accuracy"],
-                    "accuracy": s["accuracy"],
-                }
-            )
-            for c, v in s["per_class"].items():
-                per_class_rows.append(
-                    {"variant": variant, "model": model, "class": c, **v}
-                )
-            safe = variant.replace(" ", "_").replace("+", "_")
-            _confusion_png(
-                pooled,
-                names,
-                f"{model} — {variant}",
-                eval_dir / f"confusion_{model}_{safe}.png",
-            )
-        boot = bootstrap(per_slide_cms, names)
-        metrics["variants"][variant]["bootstrap"] = boot
-        if boot:
-            metrics.setdefault("bootstrap", True)
-            for m, v in boot["models"].items():
-                boot_rows.append(
-                    {
-                        "variant": variant,
-                        "comparison": m,
-                        "mean": metrics["variants"][variant]["models"][m]["macro_f1"],
-                        "ci95_low": v["macro_f1_ci95"][0],
-                        "ci95_high": v["macro_f1_ci95"][1],
-                        "p_a_better": np.nan,
-                    }
-                )
-            for k, v in boot["differences"].items():
-                boot_rows.append(
-                    {
-                        "variant": variant,
-                        "comparison": k,
-                        "mean": v["mean"],
-                        "ci95_low": v["ci95"][0],
-                        "ci95_high": v["ci95"][1],
-                        "p_a_better": v["p_a_better"],
-                    }
-                )
 
-    # original GT label -> predicted class distribution (all labels, incl. ignored)
-    label_rows = []
-    for model in models:
-        counts: dict[str, Counter[str]] = defaultdict(Counter)
-        for ev in evals:
-            for label in ev.raw.columns:
-                mask = (ev.raw[label] >= RAW_LABEL_MAJORITY).to_numpy()
-                counts[label].update(
-                    ev.predictions[model].loc[mask, "pred_name"].tolist()
-                )
-        for label, ctr in counts.items():
-            total = sum(ctr.values())
-            if not total:
-                continue
-            label_rows.append(
-                {
-                    "model": model,
-                    "gt_label": label,
-                    "maps_to": label_map.target_of(label) or "<UNMAPPED>",
-                    "tiles": total,
-                    **{c: ctr.get(c, 0) / total for c in class_names},
-                }
-            )
-
+    label_rows = _label_prediction_rows(evals, models, label_map, class_names)
     tables = {
-        "summary": pd.DataFrame(summary_rows),
-        "per_class": pd.DataFrame(per_class_rows),
-        "per_slide": pd.DataFrame(per_slide_rows),
-        "bootstrap": pd.DataFrame(boot_rows),
+        "summary": pd.DataFrame(rows.summary),
+        "per_class": pd.DataFrame(rows.per_class),
+        "per_slide": pd.DataFrame(rows.per_slide),
+        "bootstrap": pd.DataFrame(rows.bootstrap),
         "label_predictions": pd.DataFrame(label_rows).sort_values(["gt_label", "model"])
         if label_rows
         else pd.DataFrame(),
@@ -639,3 +525,201 @@ def evaluate(
     report = write_report(eval_dir, metrics, tables)
     print(f"report: {report}")
     return metrics
+
+
+def _load_slide(
+    item: EvalItem,
+    models: list[str],
+    label_map: LabelMap,
+    thresholds: dict[str, float],
+    tissue_prop_min: float,
+) -> SlideEval:
+    """Ground truth (also saved as ``gt_tiles.parquet``) and cached predictions."""
+    tiles = pd.read_parquet(item.slide_dir / "tiles.parquet")
+    gt, raw = ground_truth_tiles(
+        item.annotation,
+        tiles,
+        item.geometry.tile_size,
+        item.geometry.downsample,
+        label_map,
+        thresholds,
+        tissue_prop_min,
+    )
+    gt.to_parquet(item.slide_dir / "gt_tiles.parquet", index=False)
+    reasons = gt["reason"].value_counts().to_dict()
+    print(
+        f"  {int((gt['reason'] == REASON_OK).sum())} labelled tiles {reasons}",
+        flush=True,
+    )
+
+    predictions = {}
+    for model in models:
+        p = pd.read_parquet(item.slide_dir / f"predictions_{model}.parquet")
+        same_tiles = (
+            len(p) == len(tiles)
+            and (p[["x", "y"]].to_numpy() == tiles[["x", "y"]].to_numpy()).all()
+        )
+        if not same_tiles:
+            raise RuntimeError(
+                f"{item.slide.name}: predictions_{model} do not match tiles.parquet"
+            )
+        predictions[model] = p
+    return SlideEval(item.slide.name, gt, raw, predictions)
+
+
+def _write_slide_panels(
+    ev: SlideEval,
+    geometry: SlideGeometry,
+    class_names: list[str],
+    thumbnail_size: int,
+    path: Path,
+) -> None:
+    """Thumbnail | ground truth (evaluated tiles) | each model."""
+    from inference.predict import assemble_class_map, write_panels
+
+    panels: list[Panel] = [(ev.name, None, None)]
+    ok = ev.labelled
+    if ok.any():
+        labelled = ev.gt.loc[ok]
+        onehot = np.zeros((len(labelled), len(class_names)), dtype=np.float32)
+        onehot[
+            np.arange(len(labelled)), [class_names.index(c) for c in labelled["label"]]
+        ] = 1
+        class_map = assemble_class_map(
+            onehot, labelled["x"].to_numpy(), labelled["y"].to_numpy(), geometry
+        )
+        panels.append(("ground truth (evaluated tiles)", *class_map.class_indices()))
+    for model, p in ev.predictions.items():
+        probs = p[[f"prob_{c}" for c in class_names]].to_numpy()
+        class_map = assemble_class_map(
+            probs, p["x"].to_numpy(), p["y"].to_numpy(), geometry
+        )
+        panels.append((model, *class_map.class_indices()))
+    write_panels(geometry, panels, class_names, thumbnail_size, path)
+
+
+def _slide_confusion(
+    ev: SlideEval, model: str, merge: dict[str, list[str]], names: list[str]
+) -> np.ndarray:
+    ok = ev.labelled
+    gt = merge_labels(ev.gt.loc[ok, "label"].to_numpy(), merge)
+    pred = merge_labels(ev.predictions[model].loc[ok, "pred_name"].to_numpy(), merge)
+    return confusion(gt, pred, names)
+
+
+def _evaluate_variant(
+    variant: str,
+    merge: dict[str, list[str]],
+    evals: list[SlideEval],
+    models: list[str],
+    class_names: list[str],
+    eval_dir: Path,
+    rows: _Rows,
+) -> dict[str, Any]:
+    """Metrics of every model for one class-merge variant; appends to ``rows``."""
+    names = list(
+        dict.fromkeys(merge_labels(np.array(class_names, dtype=object), merge))
+    )
+    result: dict[str, Any] = {"models": {}}
+    per_slide_cms: dict[str, list[np.ndarray]] = {}
+    for model in models:
+        cms = [_slide_confusion(ev, model, merge, names) for ev in evals]
+        per_slide_cms[model] = cms
+        for ev, cm in zip(evals, cms, strict=True):
+            s = scores(cm, names)
+            rows.per_slide.append(
+                {
+                    "variant": variant,
+                    "model": model,
+                    "slide": ev.name,
+                    "tiles": s["tiles"],
+                    "macro_f1": s["macro_f1"],
+                    "balanced_accuracy": s["balanced_accuracy"],
+                }
+            )
+
+        pooled = np.sum(cms, axis=0)
+        s = scores(pooled, names)
+        s["confusion"] = pooled.tolist()
+        s["class_names"] = names
+        result["models"][model] = s
+        rows.summary.append(
+            {
+                "variant": variant,
+                "model": model,
+                "tiles": s["tiles"],
+                "macro_f1": s["macro_f1"],
+                "balanced_accuracy": s["balanced_accuracy"],
+                "accuracy": s["accuracy"],
+            }
+        )
+        rows.per_class.extend(
+            {"variant": variant, "model": model, "class": c, **v}
+            for c, v in s["per_class"].items()
+        )
+        safe = variant.replace(" ", "_").replace("+", "_")
+        _confusion_png(
+            pooled,
+            names,
+            f"{model} — {variant}",
+            eval_dir / f"confusion_{model}_{safe}.png",
+        )
+
+    boot = bootstrap(per_slide_cms, names)
+    result["bootstrap"] = boot
+    if boot:
+        for m, v in boot["models"].items():
+            rows.bootstrap.append(
+                {
+                    "variant": variant,
+                    "comparison": m,
+                    "mean": result["models"][m]["macro_f1"],
+                    "ci95_low": v["macro_f1_ci95"][0],
+                    "ci95_high": v["macro_f1_ci95"][1],
+                    "p_a_better": np.nan,
+                }
+            )
+        for k, v in boot["differences"].items():
+            rows.bootstrap.append(
+                {
+                    "variant": variant,
+                    "comparison": k,
+                    "mean": v["mean"],
+                    "ci95_low": v["ci95"][0],
+                    "ci95_high": v["ci95"][1],
+                    "p_a_better": v["p_a_better"],
+                }
+            )
+    return result
+
+
+def _label_prediction_rows(
+    evals: list[SlideEval],
+    models: list[str],
+    label_map: LabelMap,
+    class_names: list[str],
+) -> list[dict[str, Any]]:
+    """Original GT label -> predicted class distribution (all labels, incl. ignored)."""
+    rows = []
+    for model in models:
+        counts: dict[str, Counter[str]] = defaultdict(Counter)
+        for ev in evals:
+            for label in ev.raw.columns:
+                mask = (ev.raw[label] >= RAW_LABEL_MAJORITY).to_numpy()
+                counts[label].update(
+                    ev.predictions[model].loc[mask, "pred_name"].tolist()
+                )
+        for label, ctr in counts.items():
+            total = sum(ctr.values())
+            if not total:
+                continue
+            rows.append(
+                {
+                    "model": model,
+                    "gt_label": label,
+                    "maps_to": label_map.target_of(label) or UNMAPPED,
+                    "tiles": total,
+                    **{c: ctr.get(c, 0) / total for c in class_names},
+                }
+            )
+    return rows

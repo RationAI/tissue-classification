@@ -22,11 +22,11 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 | 1 | Local GPU embedding backend (`backend: local`) | must | ✅ done | `preprocessing/foundation_models.py`, `preprocessing/embeddings.py`, commit `b226ffe` on `feature/hoptimus-graz-inference` |
 | 2 | HF token + gated access (Virchow2, H-Optimus-0) | must | ✅ done | token in `/mnt/projects/tissue_classification/hf_cache/token` (`HF_HOME`), both repos `auth_check` OK |
 | 3 | Parity: local Virchow2 vs model service | must | ✅ PASS | run `49421ae4584147a7bd1f5804037f7a27` vs `6dbdc6e5…`; 4917 tiles, cosine mean 0.999999 / min 0.999989, rel. L2 mean 0.12 %. Parity script/config removed after the check (in git history, commit `b226ffe`) |
-| 4 | H-Optimus-0 embeddings (train + test) | must | ✅ done | `scripts/submit_embeddings_local.py`, A40, 16 CPU. Run ID: `ec9904fdcaa5494babfe0bfa4f348d52`. Rows match `filter_tiles` exactly (train 1 570 445, test 481 806), no NaN/inf, dim 1536. Runtime 7.6 h (train 95 tiles/s, test 44 tiles/s) |
+| 4 | H-Optimus-0 embeddings (train + test) | must | ✅ done | `scripts/submit_embeddings.py` with `gpu="A40"`, `HF_HOME`, 16 CPU (one-off submit script removed, in git history). Run ID: `ec9904fdcaa5494babfe0bfa4f348d52`. Rows match `filter_tiles` exactly (train 1 570 445, test 481 806), no NaN/inf, dim 1536. Runtime 7.6 h (train 95 tiles/s, test 44 tiles/s) |
 | 5 | Add `embedding_run_ids.hoptimus0` to `configs/data/dataset.yaml` | must | ✅ done | `hoptimus0: ec9904fd…` |
 | 6 | H0 ML configs, LBFGS (train/final/test) | must | ✅ done | `configs/experiment/ml/*hoptimus0_lbfgs*`; wd 1e-3, test → final `9b7a1269…` |
 | 6b | H0 ML configs, AdamW (train/final/test) | nice | final ✅ / test todo | final `4a5ffaf1…` (wd 1e-3 reused from LBFGS, no AdamW sweep); test `+experiment=ml/test_linear_hoptimus0_adamw` only for a complete table |
-| 7 | Group k-fold sweep for H0 (LBFGS) | must | ✅ done | best wd 1e-3 (mean val F1-macro 0.876 ± 0.047); same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); `scripts/submit_train_linear_probe.py` with `git clone -b feature/hoptimus-graz-inference` and `+experiment=ml/train_linear_hoptimus0_lbfgs_group_kfold` (local edit only, not committed). Check job log `join done: N matched rows` matches the Virchow2 sweep |
+| 7 | Group k-fold sweep for H0 (LBFGS) | must | ✅ done | best wd 1e-3 (mean val F1-macro 0.876 ± 0.047); same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); `+experiment=ml/train_linear_hoptimus0_lbfgs_group_kfold` |
 | 8 | Final + test for H0 (LBFGS) | must | ✅ done | test `10d443de…` F1-macro 0.896; final LBFGS `9b7a1269c65c4e9780fcad655088be14`, AdamW `4a5ffaf1b4c74d6b872620d1f3f3bf6d` (both wd 1e-3; AdamW reuses the LBFGS wd); submit with `+experiment=ml/final_linear_hoptimus0_lbfgs`, then test with `final_train_run_id=<run>` |
 | 9 | Comparison Virchow2 vs H0 on our test set | must | ✅ done | V2 test `d604fb19…` (head `a0ec1995`) 0.893 vs H0 0.896; paired per-slide acc H0−V2 −0.005, 95 % CI [−0.022, +0.010] → tie (see log). Tile-level paired bootstrap would need test-mode prediction parquet (not logged yet) |
 | 9b | + ProvGigaPath in the comparison | nice | partial | May PGP checkpoints: 0.818 / 0.829; Nov finals `03e0b84b` / `f0ea2068` untested |
@@ -82,8 +82,8 @@ manifest.csv ─► tissue-mask ─► tile ─► embed[model] ─► classify[
 - No Ray / MLflow / kube_jobs; one process, one GPU, DataLoader over openslide.
 - Embeddings cached per slide, resumable; offline weights via `HF_HOME` + `HF_HUB_OFFLINE=1`.
 - Reuse `preprocessing/foundation_models.py` (verified by parity test).
-- Tissue mask: same filter as training (`rationai-masks` @ `68a16f9`, Otsu + closing 50 + opening 5 at 2 mpp).
-  Pin the commit sha instead of the branch name.
+- Tissue mask: same filter as training (`rationai-masks` @ branch `feature/modular-tissue-mask`, which has
+  the Vips filters; Otsu + closing 50 + opening 5 at 2 mpp). Branch pin is intentional.
 - GT → tile labels must follow training rules (per-class coverage thresholds, `tissue_prop_min: 0.2`);
   unmapped Graz labels are ignored, never silently counted as Other.
 - Outputs per slide: class-map TIFF, tiles parquet (`x, y, probs, pred, gt`), PNG overlay
@@ -104,6 +104,7 @@ manifest.csv ─► tissue-mask ─► tile ─► embed[model] ─► classify[
 
 ## Log
 
+- 2026-11-24: Code-review cleanup: shared `ml/prediction_maps.py` (class-vote map) and `preprocessing/_tissue_filter.py`, tiling constants in `inference/slides.py` (head JSON validated against them, hidden `--mpp/--tile-size/--stride` removed), `evaluate()` split; submit scripts back to master templates. Verified on synthetic slides: inference outputs identical before/after.
 - 2026-11-23: Supervisor request (H-Optimus-0 vs Virchow2, 15 Graz slides, later HALO).
 - 2026-11-23: H-Optimus-0 not on model service → local GPU backend implemented and pushed.
 - 2026-11-23: Parity test PASS (cosine ≈ 1.0).

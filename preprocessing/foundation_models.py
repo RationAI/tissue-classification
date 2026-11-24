@@ -19,12 +19,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+import torch
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    import torch
     from torch import nn
 
 
@@ -42,7 +42,6 @@ class FoundationModelSpec:
     normalization: Callable[[nn.Module], tuple[tuple[float, ...], tuple[float, ...]]]
     pool: Callable[[torch.Tensor], torch.Tensor]
     tile_size: int = TILE_SIZE
-    mpp: float = 0.5
 
 
 # --- Virchow2 -----------------------------------------------------------------
@@ -53,7 +52,6 @@ class FoundationModelSpec:
 
 def _build_virchow2() -> nn.Module:
     import timm
-    import torch
     from timm.layers.mlp import SwiGLUPacked
 
     return timm.create_model(
@@ -90,8 +88,6 @@ def _timm_normalization(
 
 
 def _pool_virchow2(out: torch.Tensor) -> torch.Tensor:
-    import torch
-
     if out.ndim != 3:
         raise ValueError(f"Virchow2 expected token output (N, T, D), got {out.shape}")
     cls_token = out[:, 0]
@@ -160,8 +156,6 @@ class FoundationModel:
     """A foundation model loaded once and applied to batches of uint8 RGB tiles."""
 
     def __init__(self, name: str, device: str | None = None) -> None:
-        import torch
-
         self.spec = get_spec(name)
         self.device = torch.device(
             device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -188,8 +182,6 @@ class FoundationModel:
 
     def embed(self, tiles: np.ndarray) -> np.ndarray:
         """Embed tiles of shape (N, H, W, 3) uint8 -> float32 (N, D)."""
-        import torch
-
         size = self.spec.tile_size
         if tiles.ndim != 4 or tiles.shape[1:] != (size, size, 3):
             raise ValueError(
@@ -211,16 +203,3 @@ class FoundationModel:
         ):
             out = self.spec.pool(self.model(x))
         return out.float().cpu().numpy()
-
-    def weights_revision(self) -> str | None:
-        """Current commit hash of the model repo on the HF hub (None if offline).
-
-        Logged for provenance; it is the hub's current revision, which equals the
-        loaded snapshot unless the repo was updated after the cache was filled.
-        """
-        try:
-            from huggingface_hub import HfApi
-
-            return HfApi().model_info(self.spec.hf_repo).sha
-        except Exception:
-            return None

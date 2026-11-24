@@ -19,13 +19,7 @@ from mlflow.artifacts import download_artifacts
 from torch.utils.data import Dataset
 
 from ml.typing import Sample
-from preprocessing._labels import (
-    REASON_LOW_COVERAGE,
-    REASON_MULTI_CLASS,
-    REASON_OK,
-    ROI_PREFIX,
-    assign_tile_labels,
-)
+from preprocessing._labels import REASON_OK, assign_tile_labels
 
 
 class _BaseEmbeddingTilesDataset(Dataset[Sample]):
@@ -123,20 +117,11 @@ class EmbeddingTilesDataset(_BaseEmbeddingTilesDataset):
         local = _resolve_uri(metadata_uri)
         df = pd.read_parquet(local)
 
-        if not any(c.startswith(ROI_PREFIX) for c in df.columns):
-            raise ValueError(
-                "metadata parquet has no roi_coverage_* columns; cannot label"
-            )
-
         labelled = assign_tile_labels(df, thresholds, tissue_prop_min)
-        reason = labelled["reason"]
-        if (reason == REASON_LOW_COVERAGE).all():
-            raise RuntimeError("all tiles dropped by tissue_prop_min filter")
-        if reason.isin([REASON_LOW_COVERAGE, REASON_MULTI_CLASS]).all():
-            raise RuntimeError("all tiles dropped by single-class filter")
-        keep = reason == REASON_OK
+        keep = labelled["reason"] == REASON_OK
         if not keep.any():
-            raise RuntimeError("all tiles dropped by per-class thresholds")
+            reasons = labelled["reason"].value_counts().to_dict()
+            raise RuntimeError(f"all tiles dropped by the labelling rule: {reasons}")
         df = df.loc[keep].copy()
         df["label"] = labelled.loc[keep, "label"]
 

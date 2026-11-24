@@ -8,16 +8,11 @@ import pyvips
 import ray
 from omegaconf import DictConfig
 from rationai.masks import process_items, tissue_mask, write_big_tiff
-from rationai.masks.vips_filters import (
-    VipsClosing,
-    VipsCompose,
-    VipsGrayScaleFilter,
-    VipsOpening,
-    VipsOtsu,
-)
 from rationai.mlkit import autolog, with_cli_args
 from rationai.mlkit.lightning.loggers import MLFlowLogger
 from ratiopath.openslide import OpenSlide
+
+from preprocessing._tissue_filter import tissue_filter
 
 
 @ray.remote(memory=3 * 1024**3)
@@ -36,15 +31,7 @@ def process_slide(
         mpp_x, mpp_y = slide.slide_resolution(level)
 
     slide = pyvips.Image.openslideload(str(slide_path), level=level)
-    custom_filter = VipsCompose(
-        [
-            VipsGrayScaleFilter(),
-            VipsOtsu(),
-            VipsClosing(disc_factor=disk_factor),
-            VipsOpening(disc_factor=5),
-        ]
-    )
-    mask, _ = tissue_mask(slide, mpp=(mpp_x, mpp_y), filter=custom_filter)
+    mask, _ = tissue_mask(slide, mpp=(mpp_x, mpp_y), filter=tissue_filter(disk_factor))
     mask_path = output_path / slide_path.with_suffix(".tiff").name
     write_big_tiff(mask, path=mask_path, mpp_x=mpp_x, mpp_y=mpp_y)
 
