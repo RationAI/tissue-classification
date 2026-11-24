@@ -9,10 +9,10 @@ embedding_dim: 1536
 embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_ids.hoptimus0}
 mlflow_artifact_path: linear_classifier_final_hoptimus0
 
-# Set after Stage 1 from H-Optimus-0's own AdamW sweep selected by
-# validation/f1_macro.
+# No AdamW sweep was run for H-Optimus-0; reuses the LBFGS sweep's best
+# weight decay (run 4a5ffaf1 was trained with this value).
 model:
-  weight_decay: ???
+  weight_decay: 1.0e-3
 
 metadata:
   run_name: Final Linear Classifier AdamW H-Optimus-0 ${dataset.name}

@@ -8,7 +8,7 @@ defaults:
 # filtered labeled test split, thresholds, metrics, and checkpoint convention as
 # the Virchow2 test config.
 mode: test
-final_train_run_id: ???
+final_train_run_id: 4a5ffaf1b4c74d6b872620d1f3f3bf6d
 checkpoint: mlflow-artifacts:/104/${final_train_run_id}/artifacts/checkpoints/last/checkpoint.ckpt
 checkpoint_weights_only: false
 
