@@ -26,8 +26,8 @@ trustworthy comparison / thesis, not blocking Graz · **nice** = optional.
 | 5 | Add `embedding_run_ids.hoptimus0` to `configs/data/dataset.yaml` | must | ✅ done | `hoptimus0: ec9904fd…` |
 | 6 | H0 ML configs, LBFGS (train/final/test) | must | drafted, not committed | `configs/experiment/ml/*hoptimus0_lbfgs*`; fill `weight_decay: ???`, `final_train_run_id: ???` |
 | 6b | H0 ML configs, AdamW (train/final/test) | nice | drafted, not committed | only for a complete table like Virchow2/ProvGigaPath; LBFGS (exact convex solve) is enough for the decision |
-| 7 | Group k-fold sweep for H0 (LBFGS) | must | todo | same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); `scripts/submit_train_linear_probe.py` with `git clone -b feature/hoptimus-graz-inference` and `+experiment=ml/train_linear_hoptimus0_lbfgs_group_kfold` (local edit only, not committed). Check job log `join done: N matched rows` matches the Virchow2 sweep |
-| 8 | Final + test for H0 (LBFGS) | must | todo | pick weight decay by `validation/f1_macro` |
+| 7 | Group k-fold sweep for H0 (LBFGS) | must | ✅ done | best wd 1e-3 (mean val F1-macro 0.876 ± 0.047); same grid as Virchow2: `val_fold=0..4`, `weight_decay=0,1e-5,1e-4,1e-3,1e-2` (+1e-1 if best is at the edge); `scripts/submit_train_linear_probe.py` with `git clone -b feature/hoptimus-graz-inference` and `+experiment=ml/train_linear_hoptimus0_lbfgs_group_kfold` (local edit only, not committed). Check job log `join done: N matched rows` matches the Virchow2 sweep |
+| 8 | Final + test for H0 (LBFGS) | must | todo | `final_linear_hoptimus0_lbfgs` now has wd 1e-3; submit with `+experiment=ml/final_linear_hoptimus0_lbfgs`, then test with `final_train_run_id=<run>` |
 | 9 | Comparison Virchow2 vs H0 on our test set | must | todo | macro F1, per-class F1, confusion matrix, per-slide; same tiles/folds/test split/thresholds |
 | 9b | + ProvGigaPath in the comparison | nice | todo | results already exist |
 | 10 | Export linear heads (ckpt → safetensors + json) | must | Virchow2 ✅ / H0 todo | `python -m inference.export_head`; Virchow2 head = LBFGS final run `a0ec1995d1b1472785d30ccbe15e84ef` (same as test/predict configs); must run where MLflow is reachable |
@@ -107,6 +107,7 @@ manifest.csv ─► tissue-mask ─► tile ─► embed[model] ─► classify[
 - 2026-11-23: Supervisor request (H-Optimus-0 vs Virchow2, 15 Graz slides, later HALO).
 - 2026-11-23: H-Optimus-0 not on model service → local GPU backend implemented and pushed.
 - 2026-11-23: Parity test PASS (cosine ≈ 1.0).
+- 2026-11-24: H0 LBFGS sweep done (25/25). Mean val F1-macro by wd: 0=0.835, 1e-5=0.856, 1e-4=0.869, **1e-3=0.876**, 1e-2=0.872 → final wd 1e-3. Virchow2 (same embeddings `6dbdc6e5`) best 0.877 @ 1e-4; paired per-fold diff H0−V2 = −0.0007 (tie). ProvGigaPath 0.833. Note: V2 final `a0ec1995` uses wd 1e-2, picked from the old sweep on embeddings `c325e3a5`; the current V2 sweep prefers 1e-4.
 - 2026-11-23: H-Optimus-0 embeddings finished (run `ec9904fd…`); added to `dataset.yaml`, LBFGS sweep ready to submit.
 - 2026-11-23: H-Optimus-0 embedding job submitted.
 - 2026-11-23: Graz: GPU is V100 32 GB; sample GT GeoJSONs received, classes more detailed than ours.

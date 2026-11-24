@@ -9,10 +9,11 @@ embedding_dim: 1536
 embedding_run_id: ${dataset.mlflow_artifacts.embedding_run_ids.hoptimus0}
 mlflow_artifact_path: linear_classifier_final_hoptimus0
 
-# Set after Stage 1 from H-Optimus-0's own LBFGS sweep selected by
-# validation/f1_macro.
+# Best point of H-Optimus-0's own LBFGS group k-fold sweep by mean
+# validation/f1_macro over 5 folds (2026-11-24): 0=0.8346, 1e-5=0.8557,
+# 1e-4=0.8690, 1e-3=0.8758, 1e-2=0.8721 -> 1e-3 (not at the grid edge).
 model:
-  weight_decay: ???
+  weight_decay: 1.0e-3
 
 metadata:
   run_name: Final Linear Classifier LBFGS H-Optimus-0 ${dataset.name}
